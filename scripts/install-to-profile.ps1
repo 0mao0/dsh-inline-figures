@@ -1,73 +1,74 @@
-# Installs the dsh-inline-figures bundle into a DSH profile (default: desktop).
+# Installs the dsh-inline-figures bundle into a DSH profile (default: desktop) - FULLY OFFLINE.
 #
 # Why this script exists: the DSH Node process resolves an external bundle's
-# `@deepseek-ai/*` imports with plain Node rules from the package's REAL path, and
-# those packages live inside the app's asar - invisible to that resolution chain.
-# So the bundle must carry an installed copy of its runtime deps under its own
-# <profile>/node_modules subtree. Two pnpm hazards this script defends against:
-#   - never point file:/link: at the live workspace (pnpm has destroyed a source
-#     dir through the junction when later removing such a dependency);
-#   - staging is a PERSISTENT vendor copy (a temp dir would leave the manifest's
-#     file: reference dangling for the next pnpm validation pass, which prunes
-#     anything it cannot resolve).
+# @deepseek-ai/* imports with plain Node rules from the package's REAL path, and
+# those packages live inside the app's asar - invisible to that chain. The bundle
+# therefore carries its own vendored dependency closure (node_modules inside the
+# installed copy, built by scripts/build-offline-closure.mjs from an unpacked copy
+# of the app's own node_modules). Registry installs are NOT used: the npm registry
+# is too slow/flaky here and `dsh plugin add` (pnpm) failed mid-download and
+# ROLLED BACK the manifest, silently unregistering the bundle. Manual
+# placement + manifest edit is what the app's cordis loader actually consumes.
 #
-# Flow: remove old entry -> stage a fresh copy under ~/.dsh/vendor ->
-# `dsh plugin add file:<staging>` -> `npm install --omit=dev` inside the installed
-# dir (exact-pinned deps come from npm) -> reject link:/junction-escape -> load
-# probe under the profile's resolution. If the DSH app later upgrades its runtime
-# versions, re-pin dependencies in package.json and run this script again.
+# Hazards encoded here:
+#   - never point file:/link: at the live workspace (pnpm has destroyed a source
+#     dir through a junction when later removing such a dependency);
+#   - pnpm prunes undeclared top-level node_modules entries, so the closure lives
+#     INSIDE the installed package dir, not at the profile root;
+#   - a persistent staging copy (~/.dsh/vendor) keeps the manifest's file:
+#     reference resolvable for any future pnpm pass.
+#
+# After running: restart the DSH app, then Settings -> plugins -> inline-figures
+# must show running. If the app later upgrades runtime versions, re-extract the
+# app tree and rebuild the closure with build-offline-closure.mjs.
 param(
   [string]$Profile = 'desktop',
-  [string]$DshCli = (Join-Path ${env:LOCALAPPDATA} 'Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd')
+  [string]$Tree = (Join-Path (Get-Location) '_probe\dshtree\dsh\node_modules')
 )
 $ErrorActionPreference = 'Stop'
 $pkgDir = Split-Path -Parent $PSScriptRoot
-$pkgJson = Get-Content (Join-Path $pkgDir 'package.json') -Raw | ConvertFrom-Json
-$pkgName = $pkgJson.name
+$pkgName = (Get-Content (Join-Path $pkgDir 'package.json') -Raw | ConvertFrom-Json).name
 $profileDir = Join-Path $env:USERPROFILE ".dsh\profiles\$Profile"
-$staging = Join-Path $env:USERPROFILE '.dsh\vendor\dsh-inline-figures'
+$vendor = Join-Path $env:USERPROFILE '.dsh\vendor\dsh-inline-figures'
 $installDir = Join-Path $profileDir "node_modules\$pkgName"
+if (-not (Test-Path $Tree)) { throw "app node_modules tree not found: $Tree (unpack the app's dsh tree first)" }
 
-# 1) fresh persistent staging (package files only, no node_modules, no .git)
-if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
-New-Item -ItemType Directory -Force -Path $staging | Out-Null
-foreach ($item in @('index.js', 'cordis.patch.yml', 'icon.svg', 'package.json', 'README.md', 'lib')) {
-  Copy-Item (Join-Path $pkgDir $item) (Join-Path $staging $item) -Recurse
+# 1) fresh package files into both the install dir and the persistent staging
+foreach ($d in @($installDir, $vendor)) {
+  if (Test-Path $d) { Remove-Item $d -Recurse -Force }
+  New-Item -ItemType Directory -Force -Path $d | Out-Null
+  foreach ($item in @('index.js', 'cordis.patch.yml', 'icon.svg', 'package.json', 'README.md', 'lib')) {
+    Copy-Item (Join-Path $pkgDir $item) (Join-Path $d $item) -Recurse -Force
+  }
 }
 
-# 2) drop any previous registration and stray entries (tolerant)
-& $DshCli plugin --profile $Profile remove $pkgName 2>&1 | Out-Null
-foreach ($stray in @((Join-Path $profileDir 'node_modules\dsh-inline-figures'))) {
-  if (Test-Path $stray) { Remove-Item $stray -Recurse -Force -ErrorAction SilentlyContinue }
+# 2) vendor the dependency closure into both copies (junction-safe Copy-Item)
+$clist = & node (Join-Path $PSScriptRoot 'build-offline-closure.mjs') (Join-Path $vendor 'package.json') $Tree
+if ($LASTEXITCODE -ne 0) { throw "closure build failed: $clist" }
+foreach ($t in @((Join-Path $installDir 'node_modules'), (Join-Path $vendor 'node_modules'))) {
+  foreach ($name in $clist) {
+    $rel = $name.Replace('/', '\')
+    $dst = Join-Path $t $rel
+    if (Test-Path $dst) { continue }
+    New-Item -ItemType Directory -Force -Path (Split-Path $dst) -ErrorAction SilentlyContinue | Out-Null
+    Copy-Item (Join-Path $Tree $rel) $dst -Recurse -Force
+  }
 }
 
-# 3) register from the persistent staging copy
-Write-Host "== installing '$pkgName' into profile '$Profile' from $staging =="
-& $DshCli plugin --profile $Profile add ('file:' + $staging)
-if ($LASTEXITCODE -ne 0) { throw "dsh plugin add failed (exit $LASTEXITCODE)" }
+# 3) register in the profile manifest (cordis reads this at app start; no pnpm)
+$manifestPath = Join-Path $profileDir 'package.json'
+$manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+if (-not $manifest.dependencies) { $manifest | Add-Member -NotePropertyName dependencies -NotePropertyValue ([pscustomobject]@{}) }
+$manifest.dependencies | Add-Member -NotePropertyName $pkgName -NotePropertyValue ('file:' + $vendor.Replace('\','/')) -Force
+$bundles = @($manifest.dsh.profile.bundles) | Where-Object { $_ -ne $pkgName }
+$manifest.dsh.profile.bundles = @($bundles + $pkgName)
+[System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 10))
+Write-Host "== registered '$pkgName' in $manifestPath =="
 
-# 4) manifest must reference the persistent staging, never the working tree
-$manifest = Get-Content (Join-Path $profileDir 'package.json') -Raw | ConvertFrom-Json
-$dep = $manifest.dependencies.$pkgName
-if ($dep -like 'link:*') { throw "manifest dep is a link ('$dep'); refusing to continue - pnpm may later replace the install with a junction to a mutable path" }
-Write-Host "== manifest dep: $dep =="
-
-# 5) installed copy must be real (or a junction into .pnpm), never a junction out of profile
-if (-not (Test-Path (Join-Path $installDir 'index.js'))) { throw "installed bundle not found at $installDir" }
-$item = Get-Item $installDir
-if ($item.LinkType) {
-  $target = [System.IO.Path]::GetFullPath(($item.Target | Select-Object -First 1))
-  if (-not $target.StartsWith($profileDir, [StringComparison]::OrdinalIgnoreCase)) { throw "install junction escapes the profile: $target" }
-}
-
-# 6) pull the exact-pinned runtime closure into the installed dir (network)
-Push-Location $installDir
-try { npm install --omit=dev --no-audit --no-fund --ignore-scripts } finally { Pop-Location }
-
-# 7) load probe under the profile's own resolution
+# 4) self-containment probe: resolution must stay inside the profile and load
 Push-Location $profileDir
 try {
-  $probe = & node -e "import('$pkgName').then((m)=>console.log('LOAD OK:',Object.keys(m).join(',')),(e)=>{console.error('LOAD FAIL:',e.message);process.exit(1)})"
+  $probe = & node --input-type=module -e "import fs from 'node:fs'; import { fileURLToPath } from 'node:url'; const dir = fs.realpathSync(fileURLToPath(new URL('.', import.meta.resolve('$pkgName')))); if (!dir.startsWith(fs.realpathSync(process.cwd()))) throw new Error('resolution escapes profile: ' + dir); const m = await import('$pkgName'); console.log('LOAD OK:', Object.keys(m).join(','));"
   if ($LASTEXITCODE -ne 0) { throw "load probe failed: $probe" }
   Write-Host $probe
 } finally { Pop-Location }

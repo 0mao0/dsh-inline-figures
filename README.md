@@ -32,11 +32,9 @@ pwsh -File packages/dsh-inline-figures/scripts/install-to-profile.ps1           
 pwsh -File packages/dsh-inline-figures/scripts/install-to-profile.ps1 -Profile web
 ```
 
-需要联网（按运行时精确锁定的 `@deepseek-ai/*` 依赖从 npm 拉取）。完成后**重启 DSH 应用**，Settings → 内置插件 → inline-figures 应显示"运行中"。
+**全程离线**：脚本从 app 解包树（默认 `_probe/dshtree/dsh/node_modules`，可用 `-Tree` 指定）计算依赖闭包（`build-offline-closure.mjs`，32 包），实体化进安装目录与持久 staging（`~/.dsh/vendor`），然后手写回 profile manifest 并用宿主同款解析做加载探针。完成后**重启 DSH 应用**，Settings → 内置插件 → inline-figures 应显示"运行中"。
 
-为什么不是简单的 `link:` 安装：宿主 Node 进程对外部 bundle 的 `@deepseek-ai/*` import 走原生解析，而这些包在 app 的 asar 内、link 真实路径的解析链上不可见；且 pnpm 对指向工作区的 `file:` 依赖在移除时会顺着 junction 误删源目录（本包实测发生过，git 可恢复）。因此脚本走"临时副本 → file: 安装 → 安装目录内补齐依赖闭包 → 加载探针"流程。DSH 运行时升级后，把 `package.json` 里的精确依赖版本改成 app 内置版本再重跑脚本。
-
-本机现状（desktop profile）已按此装好并加载验证通过，等待宿主重启后生效。
+为什么这么绕（全部本机实测踩过）：① 宿主 Node 对外部 bundle 的 `@deepseek-ai/*` import 走原生解析，asar 内的包在其解析链上不可见 → 闭包必须随 bundle 实体安装；② pnpm 会把 profile 顶层"未声明"的 node_modules 条目当冗余剪掉 → 闭包必须放在**安装目录内部**（自包含，已用改名探针验证）；③ `dsh plugin add`（pnpm）走 registry，网络不稳时中途失败会**回滚 manifest**、把 bundle 整个注销 → 改手动放置+manifest 注册，cordis 加载只认 manifest 与 node_modules 实体；④ `file:` 指工作区时 pnpm 移除依赖会顺 junction 毁源目录（发生过，git 救回）→ staging 用持久副本 `~/.dsh/vendor`。DSH 运行时升级后：重新解包 app 树、重跑脚本即可（闭包自动跟版本）。
 
 ## 非 DSH 宿主复用（自有 web 软件三件套）
 
