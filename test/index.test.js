@@ -29,8 +29,10 @@ test('registers draw_figure tool and the guidance section', () => {
   assert.match(src, /\.dsh-figures/)
   assert.match(src, /ctx\.systemPrompt\.section\(\{/)
   assert.match(src, /interpolate: false/)
-  // Section must hide itself when the tool is not visible to the agent scope.
-  assert.match(src, /ctx\.tools\.get\('draw_figure', scope\)/)
+  // Host contract (verified against dsh-persona + the SystemPrompt service):
+  // section `text` is a literal string; a function would be stringified into the prompt.
+  assert.match(src, /text: GUIDANCE_TEXT,/)
+  assert.ok(!/text: \(\{ scope \}/.test(src), 'section text must not be a function')
 })
 
 test('output contract matches the portable render fields', () => {
