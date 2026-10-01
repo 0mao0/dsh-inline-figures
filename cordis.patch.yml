@@ -1,0 +1,5 @@
+# Inserts the host-side inline-figures plugin row into the active profile.
+- insert:
+    - id: inline-figures
+      name: '@local/dsh-inline-figures'
+      config: {}

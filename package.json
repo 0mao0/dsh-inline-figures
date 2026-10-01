@@ -1,0 +1,28 @@
+{
+  "name": "@local/dsh-inline-figures",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./engine": "./lib/engine.js",
+    "./guidance": "./lib/guidance.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": ["index.js", "lib/", "cordis.patch.yml", "icon.svg", "README.md"],
+  "icon": "./icon.svg",
+  "meta": {
+    "title": "Inline Figures",
+    "description": "Render explanatory vector figures inline in model replies: the draw_figure tool turns JSON diagram specs into full-width SVG files that Markdown embeds between paragraphs."
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
