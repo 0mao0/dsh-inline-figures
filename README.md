@@ -25,11 +25,16 @@ $env:UPDATE_GOLDEN='1'; node --test test/architecture.test.js   # 重新生成�
 
 ## 安装到本地 DSH
 
-在 DSH 会话中（或 Plugins 页选本地路径）：
+```powershell
+pwsh -File packages/dsh-inline-figures/scripts/install-to-profile.ps1            # 默认 desktop profile
+pwsh -File packages/dsh-inline-figures/scripts/install-to-profile.ps1 -Profile web
+```
 
-```
-plugin_manager action=install_bundle target=link:C:\<绝对路径>\packages\dsh-inline-figures
-```
+需要联网（按运行时精确锁定的 `@deepseek-ai/*` 依赖从 npm 拉取）。完成后**重启 DSH 应用**，Settings → 内置插件 → inline-figures 应显示"运行中"。
+
+为什么不是简单的 `link:` 安装：宿主 Node 进程对外部 bundle 的 `@deepseek-ai/*` import 走原生解析，而这些包在 app 的 asar 内、link 真实路径的解析链上不可见；且 pnpm 对指向工作区的 `file:` 依赖在移除时会顺着 junction 误删源目录（本包实测发生过，git 可恢复）。因此脚本走"临时副本 → file: 安装 → 安装目录内补齐依赖闭包 → 加载探针"流程。DSH 运行时升级后，把 `package.json` 里的精确依赖版本改成 app 内置版本再重跑脚本。
+
+本机现状（desktop profile）已按此装好并加载验证通过，等待宿主重启后生效。
 
 ## 非 DSH 宿主复用（自有 web 软件三件套）
 
