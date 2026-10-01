@@ -28,7 +28,13 @@ test('cordis patch inserts the inline-figures row', () => {
   assert.match(yml, /name:\s*'@local\/dsh-inline-figures'/)
 })
 
-test('package carries no runtime dependencies (engine is portable, host deps resolve from dsh)', () => {
+test('host deps are exact-pinned @deepseek-ai runtime copies (asar is invisible to bundle resolution)', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
-  assert.ok(!pkg.dependencies || Object.keys(pkg.dependencies).length === 0)
+  assert.ok(pkg.dependencies, 'dependencies required for file: install')
+  for (const [name, range] of Object.entries(pkg.dependencies)) {
+    assert.ok(name.startsWith('@deepseek-ai/'), `unexpected dep ${name}`)
+    assert.match(range, /^\d+\.\d+\.\d+/, `${name} must be an exact version`)
+  }
+  assert.ok(pkg.dependencies['@deepseek-ai/dsh-tools'], 'dsh-tools dep required')
+  assert.ok(pkg.dependencies['@deepseek-ai/schemastery'], 'schemastery dep required')
 })
