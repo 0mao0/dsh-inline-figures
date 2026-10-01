@@ -3,13 +3,15 @@
 DSH 宿主插件：让模型在回复正文里穿插矢量解释图（WorkBuddy 式图文穿插）。
 
 ```
-模型调 draw_figure(JSON 图型规格) → 布局引擎确定性生成 SVG → 写入 <workspace>/.dsh-figures/<会话>/N-slug.svg
-→ 模型把返回的 ![alt](path) 原样嵌入正文 → DSH 原生 Markdown 图片渲染（满宽、不折叠、点击放大）
+模型调 draw_figure → 手写 SVG(raw_svg，主路径) 或 4 型 JSON 规格(兜底) → 消毒/布局引擎产出 SVG
+→ 写入 <workspace>/.dsh-figures/<会话>/N-slug.svg → 模型把返回的 ![alt](path) 原样嵌入正文
+→ DSH 原生 Markdown 图片渲染（满宽、不折叠、点击放大）
 ```
 
 ## 特性
 
-- **5 种图型**：`architecture`（分层架构 + P0/P1 徽章 + danger 分组框 + 反馈边）、`compare`（左右对照 + 语义色）、`timeline`（步骤流 done/active/todo）、`chart`（bar/line/pie + 轴刻度 + 标签自动旋转）、`raw_svg` 逃生口（字符串级消毒）。
+- **SVG 优先**：主路径是模型手写 `raw_svg`（任意结构：树、分支流水线、状态图、自定义），消毒器注入主题样式 + 箭头 marker，保证满宽与明暗自适应；`architecture`/`compare`/`timeline`/`chart` 四型 JSON 规格为兜底（标准形/数值图用布局引擎确定性排版，永不手写坐标）。**永不用 ASCII/Unicode 字符画**。
+- **四型排版引擎**：`architecture`（分层 + P0/P1 徽章 + danger 分组框 + 反馈边）、`compare`（左右对照 + 语义色）、`timeline`（步骤流 done/active/todo）、`chart`（bar/line/pie + 轴刻度 + 标签自动旋转）。
 - **满宽渲染**：viewBox 680 排版、固有宽 1600，浏览器等比缩放到内容列宽；矢量无损耗。
 - **明暗自适应**：SVG 内嵌 `@media (prefers-color-scheme)` 双色板（跟随系统主题，见"已知局限"）。
 - **开关**：Settings 插件表单 `enabled`（volatile，改完新会话生效）；关闭后工具与系统提示引导同时消失。

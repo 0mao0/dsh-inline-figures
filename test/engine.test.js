@@ -46,6 +46,12 @@ test('engine re-exports the portable API surface', () => {
   assert.match(GUIDANCE_TEXT, /VERBATIM/)
   assert.match(GUIDANCE_TEXT, /one figure = one topic/)
   assert.match(GUIDANCE_TEXT, /WHEN TO DRAW/)
+  // SVG-first ordering is a product decision: free-form SVG primary, JSON presets fallback.
+  assert.match(GUIDANCE_TEXT, /SVG FIRST/)
+  assert.match(GUIDANCE_TEXT, /never ASCII art/)
+  const freeform = GUIDANCE_TEXT.indexOf('Free-form SVG (primary)')
+  const preset = GUIDANCE_TEXT.indexOf('Preset spec (fallback)')
+  assert.ok(freeform > 0 && preset > freeform, 'raw_svg must be listed as primary before preset fallback')
 })
 
 test('portability boundary: lib/ never imports @deepseek-ai or cordis', () => {

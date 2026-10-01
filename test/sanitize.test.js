@@ -19,6 +19,14 @@ test('basic svg passes and gets full-width sizing', () => {
   assert.match(svg, /width="1600" height="471"/)
 })
 
+test('injects theme-aware styles and arrow marker so hand-authored svg stays legible', () => {
+  const { svg } = sanitizeSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 200"><path class="line" d="M0 0L10 10"/></svg>')
+  assert.ok(svg.includes('<style>'), 'style block injected')
+  assert.ok(svg.includes('prefers-color-scheme:dark'), 'dark-mode overrides available to author')
+  assert.ok(svg.includes('id="arr"'), 'arrow marker injected for class="line"')
+  assert.ok(svg.indexOf('<style>') < svg.indexOf('<path'), 'injection precedes author content')
+})
+
 test('author width/height attributes are overridden from viewBox ratio', () => {
   const { svg } = sanitizeSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" width="10" height="5"><rect/></svg>')
   assert.match(svg, /width="1600" height="800"/)
