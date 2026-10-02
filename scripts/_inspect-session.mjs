@@ -84,6 +84,31 @@ function safeHead(v) {
   try { return JSON.stringify(v).slice(0, 240) } catch { return String(v).slice(0, 240) }
 }
 
+if (process.argv[3] === '--tail') {
+  const from = Number(process.argv[4] || 1036)
+  for (const line of lines) {
+    let obj
+    try { obj = JSON.parse(line) } catch { continue }
+    if ((obj.seq ?? 0) < from) continue
+    console.log('\n== seq', obj.seq, obj.type)
+    console.log(JSON.stringify(obj.data ?? obj).slice(0, 620))
+  }
+}
+
+if (process.argv[3] === '--toolschema') {
+  // Walk request/header lines; for each, locate the draw_figure tool entry and
+  // report the additionalProperties actually sent to the model (compiled schema).
+  for (const line of lines) {
+    let obj
+    try { obj = JSON.parse(line) } catch { continue }
+    if (obj.type !== 'request/header') continue
+    const tools = obj.data?.header?.tools ?? []
+    const df = tools.find((t) => t.name === 'draw_figure')
+    const spec = df?.parameters?.properties?.spec
+    console.log(`seq ${obj.seq}  draw_figure present: ${!!df}  spec.additionalProperties: ${JSON.stringify(spec?.additionalProperties)}  has spec.properties: ${!!spec?.properties}`)
+  }
+}
+
 if (process.argv[3] === '--results') {
   for (const line of lines) {
     let obj

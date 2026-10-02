@@ -46,6 +46,10 @@ test('engine re-exports the portable API surface', () => {
   assert.match(GUIDANCE_TEXT, /VERBATIM/)
   assert.match(GUIDANCE_TEXT, /one figure = one topic/)
   assert.match(GUIDANCE_TEXT, /WHEN TO DRAW/)
+  // Semi-mandatory trigger (product decision): describing a structure MUST draw it,
+  // with an explicit exemption for one-line factual lookups / definitions / code.
+  assert.match(GUIDANCE_TEXT, /you MUST draw it/)
+  assert.match(GUIDANCE_TEXT, /EXEMPTION/)
   // SVG-first ordering is a product decision: free-form SVG primary, JSON presets fallback.
   assert.match(GUIDANCE_TEXT, /SVG FIRST/)
   assert.match(GUIDANCE_TEXT, /never ASCII art/)

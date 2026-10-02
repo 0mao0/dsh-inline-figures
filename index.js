@@ -27,7 +27,7 @@ export function apply(ctx, config) {
 
   ctx.tools.register(defineTool({
     name: 'draw_figure',
-    description: 'Render an explanatory vector figure and return the inline markdown line to copy VERBATIM into your reply. Preferred: hand-author an SVG for free-form structures and pass kind=raw_svg; preset kinds architecture/compare/timeline/chart compute layout from JSON specs. The figure is saved in the session workspace and rendered full-width. Interleave prose and figures; 1-3 figures per answer; never use ASCII art instead.',
+    description: 'Render an explanatory vector figure and return the inline markdown line to copy VERBATIM into your reply. Preferred: hand-author an SVG for free-form structures and pass kind=raw_svg; preset kinds architecture/compare/timeline/chart compute layout from JSON specs. The figure is saved in the session workspace and rendered full-width. Whenever your answer describes multiple components and their relationships, a multi-step process/pipeline, a timeline/state machine, a comparison, or quantitative data, you MUST draw it with this tool (default 1, up to 3) and write prose around it; only one-line factual lookups, definitions, and pure code delivery are exempt. Never use ASCII art instead.',
     parameters: {
       // dsh-tools' compiler requires every `type:'object'` node to declare
       // additionalProperties. spec is heterogeneous (raw_svg vs. the four preset
