@@ -50,8 +50,11 @@ test('engine re-exports the portable API surface', () => {
   // judgment mid-answer, NOT forced or led with. Guard against reverting to a quota/MUST.
   assert.match(GUIDANCE_TEXT, /judge, do not ritualize/)
   assert.ok(!/you MUST draw it/.test(GUIDANCE_TEXT), 'must not force a figure (regression to semi-mandatory)')
-  // Figure labels + caption use controlled technical English (ASD-STE100 spirit).
+  // Controlled prose is the DEFAULT writing style (product decision, from Karpathy's
+  // ASD-STE100 tip): ~80% ASD-STE100 for explanatory prose, figures are its strictest tier.
   assert.match(GUIDANCE_TEXT, /ASD-STE100/)
+  assert.match(GUIDANCE_TEXT, /PROSE/)
+  assert.match(GUIDANCE_TEXT, /80%/)
   // SVG-first ordering is a product decision: free-form SVG primary, JSON presets fallback.
   assert.match(GUIDANCE_TEXT, /SVG FIRST/)
   assert.match(GUIDANCE_TEXT, /never ASCII art/)
