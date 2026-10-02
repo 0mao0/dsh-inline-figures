@@ -6,7 +6,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { drawFigure, FigureError, validateSpec, formatErrors, GUIDANCE_TEXT, GUIDANCE_TITLE } from './lib/engine.js'
 import { decideNudge, NUDGE_REMINDER, NUDGE_SOURCE } from './lib/nudge.js'
-import { writeFigure, pruneFigures, figureRelPath } from './lib/host-utils.js'
+import { writeFigure, pruneFigures, figureRelPath, figureDirName } from './lib/host-utils.js'
 
 export const name = 'inline-figures'
 export const inject = ['tools', 'systemPrompt']
@@ -89,12 +89,17 @@ export function apply(ctx, config) {
         throw error
       }
       exec.signal.throwIfAborted()
-      const sid8 = String(exec.agent.session.header.id).slice(0, 8)
-      const dir = path.join(cwd, '.dsh-figures', sid8)
+      // Robust session identity + safe dir name (see figureDirName). The
+      // figure dir and the URL we return MUST stay in lockstep: same input,
+      // same function. 'session-' dirs were observed on the GUI once the
+      // session surface misbehaved; the guard makes that state impossible.
+      const sid = exec.agent?.sessionId ?? exec.agent?.session?.header?.id
+      const dirName = figureDirName(sid)
+      const dir = path.join(cwd, '.dsh-figures', dirName)
       const { file } = await writeFigure(dir, rendered.svg, args.slug ?? args.spec.kind)
       exec.signal.throwIfAborted()
       await pruneFigures(dir, FIGURE_LIMIT)
-      const rel = figureRelPath(exec.agent.session.header.id, file)
+      const rel = `.dsh-figures/${dirName}/${file}`
       // Count the successful draw for the nudge policy of this agent.
       if (exec.agent) usageOf(exec.agent).drawCalls += 1
       return { path: rel, markdown: `![${args.alt}](${rel})`, warnings: rendered.warnings }

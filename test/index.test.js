@@ -35,6 +35,34 @@ test('registers draw_figure tool and the guidance section', () => {
   assert.ok(!/text: \(\{ scope \}/.test(src), 'section text must not be a function')
 })
 
+// Host reality (grep of the app bundle): session ids come in THREE shapes -
+//   dsh-session:      `session-${++counter}`
+//   dsh-api-session:  `session-${randomUUID()}`
+//   dsh-agent-loop:   `${id}-session-${randomUUID()}`
+// figureDirName must map every one to a well-formed, per-session-UNIQUE dir
+// name, or the embedded URL breaks ('session-' dirs shipped 44 dead figures
+// once). Collisions across sessions are forbidden: shared dirs would share
+// the .gitignore and the prune(200) budget.
+test('figure dir naming survives every host session-id shape', async () => {
+  const { figureDirName } = await import('../lib/host-utils.js')
+  // 1) dsh-session counter ids.
+  assert.equal(figureDirName('session-12'), 's12')
+  assert.equal(figureDirName('session-7'), 's7')
+  // Distinct counter ids never collide.
+  assert.notEqual(figureDirName('session-12'), figureDirName('session-3'))
+  // 2) api-session uuid ids ('-' is URL/filesafe, kept).
+  assert.equal(figureDirName('session-3f2a9c1e-6f7d-4c8b-9a2d-1e5b8c7d9f0a'), 's3f2a9c1e-6f7d-4')
+  // 3) agent-loop compound ids: the leading hex run wins (may itself be a UUID).
+  assert.equal(figureDirName('abc123def-session-3f2a9c1e-6f7d-4c8b-9a2d-1e5b8c7d9f0a'), 'abc123de')
+  assert.equal(figureDirName('e446dbb6-5d73-44a8-b83f-0b45e80f5b33-session-9'), 'e446dbb6')
+  // 4) plain hex UUID -> first 8 hex chars (original behaviour preserved).
+  assert.equal(figureDirName('e446dbb6-5d73-44a8-b83f-0b45e80f5b33'), 'e446dbb6')
+  // 5) degenerate -> fallback, never empty or path-breaking.
+  assert.equal(figureDirName(''), 'fallback')
+  assert.equal(figureDirName(undefined), 'fallback')
+  assert.equal(figureDirName('session-'), 'fallback')
+})
+
 test('soft nudge wires like the first-party repeat-tool-reminder plugin', () => {
   // Same proven delivery channel: additionalContexts on tools/post-execute,
   // turn counting via agent/pre-step user-source messages (verified against
