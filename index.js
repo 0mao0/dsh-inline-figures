@@ -29,10 +29,13 @@ export function apply(ctx, config) {
     name: 'draw_figure',
     description: 'Render an explanatory vector figure and return the inline markdown line to copy VERBATIM into your reply. Preferred: hand-author an SVG for free-form structures and pass kind=raw_svg; preset kinds architecture/compare/timeline/chart compute layout from JSON specs. The figure is saved in the session workspace and rendered full-width. Interleave prose and figures; 1-3 figures per answer; never use ASCII art instead.',
     parameters: {
-      // dsh-tools' tool schema compiler requires every `type: 'object'` node to
-      // declare additionalProperties explicitly, or defineTool throws at
-      // registration. spec is a closed discriminated shape (fields keyed by kind).
-      spec: { type: 'object', required: true, additionalProperties: false, description: SPEC_DESCRIPTION },
+      // dsh-tools' compiler requires every `type:'object'` node to declare
+      // additionalProperties. spec is heterogeneous (raw_svg vs. the four preset
+      // kinds, each with its own nested layers/nodes/rows/steps/data), so the
+      // schema is intentionally OPEN here (additionalProperties: true): the host
+      // compiles and passes it through, and the real, deep validation lives in
+      // validateSpec()/drawFigure() at execute time — the designed check path.
+      spec: { type: 'object', required: true, additionalProperties: true, description: SPEC_DESCRIPTION },
       alt: { type: 'string', required: true, description: 'Short descriptive alt text for the figure.' },
       slug: { type: 'string', description: 'Short kebab-case word for the file name (default: the figure kind).' },
     },

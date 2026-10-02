@@ -48,6 +48,16 @@ const { svg, warnings } = drawFigure({ kind: 'compare', title: '…', rows: [ �
 // 3) 渲染：svg 字符串直接内联或存文件走你前端的 markdown 图片通道
 ```
 
+## 宿主工具 schema 契约（踩过的坑，勿回退）
+
+`defineTool` 的 schema 编译器（dsh-tools）有两条硬规则，违反时插件**"启动失败"或每次调用报 `invalid arguments`**：
+
+1. **每个 `type:'object'` 节点**（顶层与所有嵌套）必须显式写 `additionalProperties: true|false`，否则 `defineTool` 在注册时抛错（→ Settings 里"启动失败"）。
+2. `additionalProperties:false` 的对象会在**运行时**拒绝任何不在 `properties` 白名单里的键。`spec` 是异构的（raw_svg + 4 种 preset，各自带 layers/nodes/rows/steps/data 等嵌套），因此 `spec` 必须保持 **`additionalProperties: true`（开放）**——宿主只负责透传，真正的深校验在 execute 期的 `validateSpec()`/`drawFigure()`。把它改成 `false` 会让**每一次调用**都失败于 `"spec.kind" is not a declared property`。
+3. output 用的是另一套 "value schema" DSL：**只能逐属性写 `required: true`**，写顶层 `required:[...]` 数组会编译报错。
+
+回归防线：`scripts/_repro-activate.mjs` 在真实 cordis + ToolRuntime 下把五种 spec **逐一 execute 到产出 .svg**（不是只验证注册）。改完 index.js 后在安装目录跑它：`node _repro-activate.mjs`，见 `E2E: 5 pass` 才算数。
+
 ## 已知局限
 
 1. 主题经 `prefers-color-scheme` 跟随**系统**主题；若你的应用内主题与系统相反，图与界面色调会拧（彻底解法需客户端插件配合，规划中）。

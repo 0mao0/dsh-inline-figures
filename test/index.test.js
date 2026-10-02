@@ -42,11 +42,16 @@ test('output contract matches the portable render fields', () => {
   }
 })
 
-// Verified against the installed host: dsh-tools.defineTool throws at registration
-// (surfacing as "plugin startup failed") when an object parameter omits
-// additionalProperties, or when the output value schema uses a top-level `required` array.
+// Verified end-to-end against the installed host (scripts/_repro-activate.mjs invokes
+// draw_figure for every spec kind). Two host constraints, learned the hard way:
+//  1. defineTool throws at registration if an object node omits additionalProperties.
+//  2. At runtime an object with additionalProperties:false rejects every key NOT in
+//     its `properties` whitelist. spec is heterogeneous (raw_svg + 4 preset kinds with
+//     nested layers/nodes/rows/steps/data), so it MUST stay OPEN (true); deep validation
+//     is validateSpec()/drawFigure() at execute time. Regressing this to false makes
+//     every call fail with `invalid arguments: "spec.kind" is not a declared property`.
 test('defineTool schema satisfies the host schema compiler', () => {
-  assert.match(src, /spec: \{ type: 'object', required: true, additionalProperties: false/)
+  assert.match(src, /spec: \{ type: 'object', required: true, additionalProperties: true/)
   // The output value-schema DSL rejects a top-level required array; scope the check
   // to the output schema block (between `output: {` and `render:`) so SPEC/comments don't false-positive.
   const outputBlock = src.slice(src.indexOf('output: {'), src.indexOf('render:'))
