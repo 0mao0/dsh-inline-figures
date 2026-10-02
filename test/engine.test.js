@@ -65,6 +65,8 @@ test('engine re-exports the portable API surface', () => {
   const freeform = GUIDANCE_TEXT.indexOf('Free-form SVG (primary)')
   const preset = GUIDANCE_TEXT.indexOf('Preset spec (fallback)')
   assert.ok(freeform > 0 && preset > freeform, 'raw_svg must be listed as primary before preset fallback')
+  // Soft pastel tints are the color mechanism; raw_svg authors must be told to use them.
+  assert.match(GUIDANCE_TEXT, /\.tint1/)
 })
 
 test('portability boundary: lib/ never imports @deepseek-ai or cordis', () => {
