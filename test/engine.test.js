@@ -55,6 +55,10 @@ test('engine re-exports the portable API surface', () => {
   // Guard against BOTH old failure modes: no forced quota AND no prose-default under-draw.
   assert.ok(!/you MUST draw it/.test(GUIDANCE_TEXT), 'must not force a figure (regression to semi-mandatory)')
   assert.ok(!/many use none/.test(GUIDANCE_TEXT), 'must not default to no-figures (regression to under-draw)')
+  // Analysis / evaluation / "should we use X" is NOT exempt as "just discussion" - the
+  // Clef session drew zero figures because the guidance left evaluative answers ambiguous.
+  assert.match(GUIDANCE_TEXT, /NOT exempt for being "just discussion"/)
+  assert.match(GUIDANCE_TEXT, /feasibility|decision|trade-off/)
   // Controlled prose is the DEFAULT writing style (product decision, from Karpathy's
   // ASD-STE100 tip): ~80% ASD-STE100 for explanatory prose, figures are its strictest tier.
   assert.match(GUIDANCE_TEXT, /ASD-STE100/)

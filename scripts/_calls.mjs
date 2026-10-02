@@ -33,7 +33,7 @@ for (const line of lines) {
     const err = m.isError ? ' ERROR' : ''
     const txt = (m.content?.[0]?.text ?? '').replace(/\n/g, ' ').slice(0, 160)
     const callId = m.toolCallId ?? m.source?.callId ?? ''
-    const isDraw = /\.svg/.test(m.content?.[0]?.text ?? '')
+    const isDraw = /!\[[^\]]*\]\([^)]*\.svg/.test(m.content?.[0]?.text ?? '') || /"path":.*\.svg/.test(m.content?.[0]?.text ?? '')
     if (isDraw) { m.isError ? stats.drawErr++ : stats.drawOk++ }
     else if (m.isError) stats.otherErr++
     if (MODE !== 'stats') console.log(`[seq ${o.seq}] RESULT${err} ${callId} :: ${txt}`)
