@@ -44,12 +44,14 @@ test('engine re-exports the portable API surface', () => {
   assert.equal(GUIDANCE_TITLE, 'inline-figures:guidance')
   assert.match(GUIDANCE_TEXT, /draw_figure/)
   assert.match(GUIDANCE_TEXT, /VERBATIM/)
-  assert.match(GUIDANCE_TEXT, /one figure = one topic/)
+  assert.match(GUIDANCE_TEXT, /one figure = one idea/i)
   assert.match(GUIDANCE_TEXT, /WHEN TO DRAW/)
-  // Semi-mandatory trigger (product decision): describing a structure MUST draw it,
-  // with an explicit exemption for one-line factual lookups / definitions / code.
-  assert.match(GUIDANCE_TEXT, /you MUST draw it/)
-  assert.match(GUIDANCE_TEXT, /EXEMPTION/)
+  // Judgment-based trigger (product decision): a figure is placed by comparative
+  // judgment mid-answer, NOT forced or led with. Guard against reverting to a quota/MUST.
+  assert.match(GUIDANCE_TEXT, /judge, do not ritualize/)
+  assert.ok(!/you MUST draw it/.test(GUIDANCE_TEXT), 'must not force a figure (regression to semi-mandatory)')
+  // Figure labels + caption use controlled technical English (ASD-STE100 spirit).
+  assert.match(GUIDANCE_TEXT, /ASD-STE100/)
   // SVG-first ordering is a product decision: free-form SVG primary, JSON presets fallback.
   assert.match(GUIDANCE_TEXT, /SVG FIRST/)
   assert.match(GUIDANCE_TEXT, /never ASCII art/)
