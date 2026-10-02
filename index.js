@@ -29,11 +29,16 @@ export function apply(ctx, config) {
     name: 'draw_figure',
     description: 'Render an explanatory vector figure and return the inline markdown line to copy VERBATIM into your reply. Preferred: hand-author an SVG for free-form structures and pass kind=raw_svg; preset kinds architecture/compare/timeline/chart compute layout from JSON specs. The figure is saved in the session workspace and rendered full-width. Interleave prose and figures; 1-3 figures per answer; never use ASCII art instead.',
     parameters: {
-      spec: { type: 'object', required: true, description: SPEC_DESCRIPTION },
+      // dsh-tools' tool schema compiler requires every `type: 'object'` node to
+      // declare additionalProperties explicitly, or defineTool throws at
+      // registration. spec is a closed discriminated shape (fields keyed by kind).
+      spec: { type: 'object', required: true, additionalProperties: false, description: SPEC_DESCRIPTION },
       alt: { type: 'string', required: true, description: 'Short descriptive alt text for the figure.' },
       slug: { type: 'string', description: 'Short kebab-case word for the file name (default: the figure kind).' },
     },
     output: {
+      // The output "value schema" DSL differs from the parameter DSL: use a
+      // per-property `required: true` flag only — a top-level required array is rejected.
       schema: {
         type: 'object',
         additionalProperties: false,
@@ -42,7 +47,6 @@ export function apply(ctx, config) {
           markdown: { type: 'string', required: true, description: 'Inline image markdown to copy verbatim into the reply.' },
           warnings: { type: 'array', required: true, items: { type: 'string' }, description: 'Non-fatal layout notes (truncated labels and similar).' },
         },
-        required: ['path', 'markdown', 'warnings'],
       },
       render: (_args, value) => [{
         type: 'text',

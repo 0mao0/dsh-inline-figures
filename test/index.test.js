@@ -36,8 +36,22 @@ test('registers draw_figure tool and the guidance section', () => {
 })
 
 test('output contract matches the portable render fields', () => {
-  assert.match(src, /required: \['path', 'markdown', 'warnings'\]/)
   assert.match(src, /render: \(_args, value\) =>/)
+  for (const field of ['path', 'markdown', 'warnings']) {
+    assert.match(src, new RegExp(`${field}: \\{ type: '(?:string|array)'.*?required: true`), `${field} required via per-property flag`)
+  }
+})
+
+// Verified against the installed host: dsh-tools.defineTool throws at registration
+// (surfacing as "plugin startup failed") when an object parameter omits
+// additionalProperties, or when the output value schema uses a top-level `required` array.
+test('defineTool schema satisfies the host schema compiler', () => {
+  assert.match(src, /spec: \{ type: 'object', required: true, additionalProperties: false/)
+  // The output value-schema DSL rejects a top-level required array; scope the check
+  // to the output schema block (between `output: {` and `render:`) so SPEC/comments don't false-positive.
+  const outputBlock = src.slice(src.indexOf('output: {'), src.indexOf('render:'))
+  assert.ok(outputBlock.length > 0)
+  assert.ok(!/required: \[/.test(outputBlock), 'no top-level required array in the output value schema')
 })
 
 test('delegates to portable modules only (no inline layout logic)', () => {
