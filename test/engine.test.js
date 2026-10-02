@@ -46,10 +46,15 @@ test('engine re-exports the portable API surface', () => {
   assert.match(GUIDANCE_TEXT, /VERBATIM/)
   assert.match(GUIDANCE_TEXT, /one figure = one idea/i)
   assert.match(GUIDANCE_TEXT, /WHEN TO DRAW/)
-  // Judgment-based trigger (product decision): a figure is placed by comparative
-  // judgment mid-answer, NOT forced or led with. Guard against reverting to a quota/MUST.
-  assert.match(GUIDANCE_TEXT, /judge, do not ritualize/)
+  // Trigger posture (product decision): judge by comparison but LEAN toward drawing;
+  // a figure REPLACES the paragraph it covers (cures "too little figure, too much text").
+  assert.match(GUIDANCE_TEXT, /lean toward drawing/)
+  assert.match(GUIDANCE_TEXT, /at least one figure/)
+  assert.match(GUIDANCE_TEXT, /figures replace prose, they do not stack on it/)
+  assert.match(GUIDANCE_TEXT, /DENSITY/)
+  // Guard against BOTH old failure modes: no forced quota AND no prose-default under-draw.
   assert.ok(!/you MUST draw it/.test(GUIDANCE_TEXT), 'must not force a figure (regression to semi-mandatory)')
+  assert.ok(!/many use none/.test(GUIDANCE_TEXT), 'must not default to no-figures (regression to under-draw)')
   // Controlled prose is the DEFAULT writing style (product decision, from Karpathy's
   // ASD-STE100 tip): ~80% ASD-STE100 for explanatory prose, figures are its strictest tier.
   assert.match(GUIDANCE_TEXT, /ASD-STE100/)
