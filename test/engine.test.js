@@ -65,8 +65,11 @@ test('engine re-exports the portable API surface', () => {
   const freeform = GUIDANCE_TEXT.indexOf('Free-form SVG (primary)')
   const preset = GUIDANCE_TEXT.indexOf('Preset spec (fallback)')
   assert.ok(freeform > 0 && preset > freeform, 'raw_svg must be listed as primary before preset fallback')
-  // Soft pastel tints are the color mechanism; raw_svg authors must be told to use them.
+  // Color model: transparent canvas + theme surfaces; color on strokes/text/bars.
   assert.match(GUIDANCE_TEXT, /\.tint1/)
+  assert.match(GUIDANCE_TEXT, /\.accent1/)
+  assert.match(GUIDANCE_TEXT, /\.c1 \.\. \.c6|\.c1 \.\.\. \.c6|Colored titles/)
+  assert.match(GUIDANCE_TEXT, /NOT as a tinted fill/)
 })
 
 test('portability boundary: lib/ never imports @deepseek-ai or cordis', () => {
