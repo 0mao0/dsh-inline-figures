@@ -59,6 +59,9 @@ test('engine re-exports the portable API surface', () => {
   // Clef session drew zero figures because the guidance left evaluative answers ambiguous.
   assert.match(GUIDANCE_TEXT, /NOT exempt for being "just discussion"/)
   assert.match(GUIDANCE_TEXT, /feasibility|decision|trade-off/)
+  // Closed exemption list: only atomic replies skip; category-words cannot claim exemption.
+  assert.match(GUIDANCE_TEXT, /exempt ONLY for atomic replies/)
+  assert.match(GUIDANCE_TEXT, /"Explanatory", "analytical", "evaluative" and "discursive" are NOT exempt/)
   // Controlled prose is the DEFAULT writing style (product decision, from Karpathy's
   // ASD-STE100 tip): ~80% ASD-STE100 for explanatory prose, figures are its strictest tier.
   assert.match(GUIDANCE_TEXT, /ASD-STE100/)
