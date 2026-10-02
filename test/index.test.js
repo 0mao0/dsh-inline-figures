@@ -35,6 +35,25 @@ test('registers draw_figure tool and the guidance section', () => {
   assert.ok(!/text: \(\{ scope \}/.test(src), 'section text must not be a function')
 })
 
+test('soft nudge wires like the first-party repeat-tool-reminder plugin', () => {
+  // Same proven delivery channel: additionalContexts on tools/post-execute,
+  // turn counting via agent/pre-step user-source messages (verified against
+  // the bundled plugin source, not guessed).
+  assert.match(src, /ctx\.on\('tools\/post-execute'/)
+  assert.match(src, /additionalContexts: \[reminder/)
+  assert.match(src, /ctx\.on\('agent\/pre-step'/)
+  assert.match(src, /message\.source\?\.kind === 'user'/)
+  // The reminder message MUST carry the producer source kind (unlabeled
+  // contexts render as user prompts in derived history - host contract).
+  assert.match(src, /source: \{ \.\.\.NUDGE_SOURCE, form: 'notice'/)
+  assert.match(src, /createUserMessage/)
+  // Successful draws feed the policy counter.
+  assert.match(src, /usageOf\(exec\.agent\)\.drawCalls \+= 1/)
+  // Nudge is gated by its own volatile config, defaulting on.
+  assert.match(src, /nudge: z\.boolean\(\)\.default\(true\)\.volatile\(\)/)
+  assert.match(src, /if \(config\.nudge\) \{/)
+})
+
 test('output contract matches the portable render fields', () => {
   assert.match(src, /render: \(_args, value\) =>/)
   for (const field of ['path', 'markdown', 'warnings']) {
