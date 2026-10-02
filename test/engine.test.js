@@ -55,6 +55,10 @@ test('engine re-exports the portable API surface', () => {
   assert.match(GUIDANCE_TEXT, /ASD-STE100/)
   assert.match(GUIDANCE_TEXT, /PROSE/)
   assert.match(GUIDANCE_TEXT, /80%/)
+  // Count breakdowns are a chart signal, not an exempt "single value" (regression guard:
+  // a distribution must not be pushed into prose/table by the exemption).
+  assert.match(GUIDANCE_TEXT, /about to write a multi-row table/)
+  assert.match(GUIDANCE_TEXT, /A lone total .* is exempt/)
   // SVG-first ordering is a product decision: free-form SVG primary, JSON presets fallback.
   assert.match(GUIDANCE_TEXT, /SVG FIRST/)
   assert.match(GUIDANCE_TEXT, /never ASCII art/)
