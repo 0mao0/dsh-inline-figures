@@ -22,6 +22,23 @@ README 面向使用者，本文件保存踩坑记录与实现约束。改动前�
 
 `sharp` 同理：不再需要从 app 解包。它是正常 `dependencies`，官方安装会装预编译二进制（0.35.x 无 install script，不受 pnpm 构建脚本审批影响）。运行期三级解析：插件内嵌套副本 → bare import（hoisted 布局命中 profile 根）→ 离线 staging 缓存。
 
+## 发版
+
+目前只走补丁位：0.0.1 -> 0.0.2 -> 0.0.3。
+
+```powershell
+# 先在 CHANGELOG.md 的 "## [Unreleased]" 下写变更，然后：
+node scripts/release.mjs              # 升版本、定版 changelog、同步两份 README 的徽章、跑测试、commit、打 tag
+node scripts/release.mjs --dry-run    # 只打印计划，不改任何文件
+node scripts/release.mjs --push       # 连 commit 和 tag 一起推
+```
+
+`test/version.test.js` 是发版门禁：package.json 版本、changelog 顶部版本、两份 README 的版本徽章、每个语言变体的 name/description 头、关键词行、语言切换、Karpathy/ASD-STE100 署名、以及**各自那两张图**（`before-after*` 与 `how-it-works*`），任何一处不一致就红。`scripts/release.mjs` 只改三处文件（package.json、CHANGELOG.md、两份 README），测试失败会自动回滚，不留半成品。
+
+推 `v*` 标签触发 `.github/workflows/release.yml`：校验标签与 `package.json` 一致 → 跑测试 → 用 changelog 里该版本的段落发布 GitHub Release（`node scripts/release.mjs --notes <version>` 就是取那一段）。
+
+README 图片不是手搓的：`node scripts/make-readme-image.mjs`（before/after 对比）与 `node scripts/make-readme-diagram.mjs`（原理图）各含一张 `LOCALES` 表，一份布局代码出两份语言版本，改文案只改表。
+
 ## 2026-10 复核结论（待修）
 
 以下四项目前仍未修，对应 README 的 Known issues：

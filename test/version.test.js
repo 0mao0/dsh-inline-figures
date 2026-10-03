@@ -1,6 +1,7 @@
 // test/version.test.js — the release gate. The version lives in package.json;
 // the changelog's newest released section and the version badge in every README
-// language variant must agree with it, or scripts/release.mjs was bypassed.
+// language variant must agree with it, and each variant must carry the
+// machine-readable head (name/description) its own rendered pictures.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -14,10 +15,24 @@ const changelog = read('CHANGELOG.md')
 const script = read(path.join('scripts', 'release.mjs'))
 
 // Every language variant of the README, with the strings that identify it and
-// the hero image it must use (each language ships its own rendered picture).
+// the two pictures it must reference (each language ships its own renders).
 const readmes = [
-  { file: 'README.md', lang: 'en', head: /\*\*Description\.\*\*/, keywords: /\*\*Keywords\.\*\*/, switcher: /\*\*English\*\* \| \[中文\]\(README\.zh\.md\)/, hero: 'docs/assets/before-after.png' },
-  { file: 'README.zh.md', lang: 'zh', head: /\*\*描述。\*\*/, keywords: /\*\*关键词。\*\*/, switcher: /\[English\]\(README\.md\) \| \*\*中文\*\*/, hero: 'docs/assets/before-after.zh.png' },
+  {
+    file: 'README.md',
+    lang: 'en',
+    keywords: /\*\*Keywords\.\*\*/,
+    switcher: /\*\*English\*\* \| \[中文\]\(README\.zh\.md\)/,
+    hero: 'docs/assets/before-after.png',
+    diagram: 'docs/assets/how-it-works.png',
+  },
+  {
+    file: 'README.zh.md',
+    lang: 'zh',
+    keywords: /\*\*关键词。\*\*/,
+    switcher: /\[English\]\(README\.md\) \| \*\*中文\*\*/,
+    hero: 'docs/assets/before-after.zh.png',
+    diagram: 'docs/assets/how-it-works.zh.png',
+  },
 ]
 
 const released = [...changelog.matchAll(/^## \[(\d+\.\d+\.\d+)\]/gm)].map((m) => m[1])
@@ -55,25 +70,33 @@ test('every released section has notes', () => {
   }
 })
 
-for (const { file, lang, head, keywords, switcher, hero } of readmes) {
-  test(`${file} (${lang}) carries the package version, the head, the switcher and its own hero image`, () => {
+for (const { file, lang, keywords, switcher, hero, diagram } of readmes) {
+  test(`${file} (${lang}) carries the head, the version, the switcher and its own pictures`, () => {
     const text = read(file)
-    assert.match(text, new RegExp(`version-${pkg.version.replace(/\./g, '\\.')}-`), `${file} badge must read version-${pkg.version}-`)
+    // The head: a name/description table, so a reader - human or model - can
+    // parse what this is without reading the prose below it.
+    assert.match(text, /^\|\s*name\s*\|\s*[^|]+\|\s*$/m, `${file} needs a "| name | … |" head row`)
+    const nameCell = /^\|\s*name\s*\|\s*([^|]+?)\s*\|\s*$/m.exec(text)[1]
+    assert.equal(nameCell, pkg.name, `${file} head name must be the package name`)
+    assert.match(text, /^\|\s*description\s*\|\s*\S.*\|\s*$/m, `${file} needs a "| description | … |" head row`)
     assert.match(text, /^# dsh-inline-figures$/m, `${file} needs the repository name as its H1`)
-    assert.match(text, head, `${file} needs its description head`)
     assert.match(text, keywords, `${file} needs its keyword line`)
     assert.match(text, switcher, `${file} needs the language switcher`)
     assert.match(text, /Karpathy/, `${file} credits Karpathy`)
     assert.match(text, /ASD-STE100/, `${file} names ASD-STE100`)
-    const found = /!\[[^\]]*\]\((docs\/assets\/[^)]+)\)/.exec(text)
-    assert.ok(found, `${file} references no hero image under docs/assets/`)
-    assert.equal(found[1], hero, `${file} must use its own rendered hero image (${hero})`)
-    assert.ok(fs.existsSync(path.join(root, hero)), `${file} hero image missing on disk: ${hero}`)
+    assert.match(text, new RegExp(`version-${pkg.version.replace(/\./g, '\\.')}-`), `${file} badge must read version-${pkg.version}-`)
+    const referenced = [...text.matchAll(/!\[[^\]]*\]\((docs\/assets\/[^)]+)\)/g)].map((m) => m[1])
+    for (const image of [hero, diagram]) {
+      assert.ok(referenced.includes(image), `${file} must reference its own picture ${image}`)
+      assert.ok(fs.existsSync(path.join(root, image)), `picture missing on disk: ${image}`)
+    }
   })
 }
 
-test('both READMEs ship with the package', () => {
-  for (const { file } of readmes) assert.ok(pkg.files.includes(file), `${file} must be listed in files`)
+test('both READMEs and every picture ship with the package', () => {
+  for (const { file, hero, diagram } of readmes) {
+    for (const entry of [file, hero, diagram]) assert.ok(pkg.files.some((f) => f === entry || f === `${entry.split('/')[0]}/`), `${entry} must be covered by files`)
+  }
 })
 
 test('MIT licence, and the release script keeps every language variant in step', () => {
