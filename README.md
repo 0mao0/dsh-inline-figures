@@ -1,10 +1,10 @@
 # dsh-inline-figures
 
-[![version](https://img.shields.io/badge/version-0.0.2-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.0.3-blue)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![ci](https://github.com/0mao0/dsh-inline-figures/actions/workflows/ci.yml/badge.svg)](https://github.com/0mao0/dsh-inline-figures/actions/workflows/ci.yml)
 
-**English** | [中文](README.zh.md)
+**English** | [中文](README-zh.md)
 
 | name | dsh-inline-figures |
 |---|---|
@@ -34,11 +34,11 @@ One turn, three moves. The model decides that a point needs a figure and calls `
 DSH has its own plugin manager, so nothing is copied by hand and no package-manager command runs against your profile.
 
 ```powershell
-# from this repository (works today, no registry involved)
-dsh plugin --profile <profile> add github:0mao0/dsh-inline-figures
-
-# from npm, once the package is published there
+# from npm
 dsh plugin --profile <profile> add dsh-inline-figures
+
+# or straight from this repository, no registry involved
+dsh plugin --profile <profile> add github:0mao0/dsh-inline-figures
 ```
 
 The Web sidebar's **Plugins** page does the same thing with a form, and an agent can do it with the `plugin_manager` tool (`install_bundle`, target = the directory of a local clone).
@@ -52,7 +52,7 @@ There is no build step. The harness supplies the packages this plugin imports, a
 `package.json` pins the DSH runtime version this release was verified against, as **peer dependencies** on `@deepseek-ai/dsh-*`. The plugin manager evaluates those peers first and refuses an install on a different runtime with `incompatible-version` — a clear refusal, instead of a plugin that mounts and then misbehaves. To run it on another runtime anyway, grant the exact-version exemption:
 
 ```powershell
-dsh plugin --profile <profile> allow-version dsh-inline-figures@0.0.1 --dsh-version <runtime> --accept-risk
+dsh plugin --profile <profile> allow-version dsh-inline-figures@<version> --dsh-version <runtime> --accept-risk
 ```
 
 Verified against **dsh 0.2.0-rc.2** (cordis 4.0.4). If you need a machine that cannot reach a registry at all, [docs/MAINTAINER-NOTES.md](docs/MAINTAINER-NOTES.md) keeps the offline installer as an unsupported fallback.

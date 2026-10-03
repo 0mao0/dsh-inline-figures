@@ -1,6 +1,6 @@
 {
   "name": "dsh-inline-figures",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "DeepSeek Harness (DSH) host plugin: the model draws clean vector figures inline between the paragraphs of its reply, so answers arrive as text-figure-text instead of a wall of text.",
   "license": "MIT",
   "publishConfig": {
@@ -46,7 +46,7 @@
     "cordis.patch.yml",
     "icon.svg",
     "README.md",
-    "README.zh.md",
+    "README-zh.md",
     "CHANGELOG.md",
     "LICENSE",
     "docs/"

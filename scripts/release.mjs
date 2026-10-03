@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url'
 const pkgRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const pkgFile = path.join(pkgRoot, 'package.json')
 const logFile = path.join(pkgRoot, 'CHANGELOG.md')
-const readmeFiles = ['README.md', 'README.zh.md'].map((name) => path.join(pkgRoot, name))
+const readmeFiles = ['README.md', 'README-zh.md'].map((name) => path.join(pkgRoot, name))
 const BADGE = /version-\d+\.\d+\.\d+-/
 
 const argv = process.argv.slice(2)
@@ -102,8 +102,8 @@ console.log(`release plan
   version   ${current} -> ${next}  (${bump})
   date      ${date}
   changelog roll the Unreleased section into '## [${next}] - ${date}'
-  readme    badge version-${current}- -> version-${next}- in README.md and README.zh.md
-  files     package.json, CHANGELOG.md, README.md, README.zh.md${flag('no-git') ? '' : ', then commit + tag v' + next}`)
+  readme    badge version-${current}- -> version-${next}- in README.md and README-zh.md
+  files     package.json, CHANGELOG.md, README.md, README-zh.md${flag('no-git') ? '' : ', then commit + tag v' + next}`)
 if (notes) console.log(`\nnotes to publish:\n${notes.split('\n').map((l) => '  ' + l).join('\n')}`)
 if (flag('dry-run')) {
   console.log('\ndry run: nothing written, tests not run')
@@ -131,7 +131,7 @@ pkg.version = next
 fs.writeFileSync(pkgFile, `${JSON.stringify(pkg, null, 2)}\n`)
 fs.writeFileSync(logFile, nextLog)
 for (const [file, text] of nextReadmes) fs.writeFileSync(file, text)
-console.log(`\nwrote package.json (${next}), CHANGELOG.md, README.md, README.zh.md`)
+console.log(`\nwrote package.json (${next}), CHANGELOG.md, README.md, README-zh.md`)
 
 // --- tests -------------------------------------------------------------------
 // A sandboxed shell blocks the piped stdio that `node --test` needs for its
@@ -161,7 +161,7 @@ const git = (args) => {
   if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed`)
 }
 try {
-  git(['add', 'package.json', 'CHANGELOG.md', 'README.md', 'README.zh.md'])
+  git(['add', 'package.json', 'CHANGELOG.md', 'README.md', 'README-zh.md'])
   git(['commit', '-m', `chore(release): v${next}`])
   git(['tag', '-a', `v${next}`, '-m', `v${next}`])
 } catch (error) {

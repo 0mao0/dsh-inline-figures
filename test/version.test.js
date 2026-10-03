@@ -21,12 +21,12 @@ const readmes = [
     file: 'README.md',
     lang: 'en',
     keywords: /\*\*Keywords\.\*\*/,
-    switcher: /\*\*English\*\* \| \[中文\]\(README\.zh\.md\)/,
+    switcher: /\*\*English\*\* \| \[中文\]\(README-zh\.md\)/,
     hero: 'docs/assets/before-after.png',
     diagram: 'docs/assets/how-it-works.png',
   },
   {
-    file: 'README.zh.md',
+    file: 'README-zh.md',
     lang: 'zh',
     keywords: /\*\*关键词。\*\*/,
     switcher: /\[English\]\(README\.md\) \| \*\*中文\*\*/,
@@ -107,7 +107,7 @@ test('MIT licence, and the release script keeps every language variant in step',
   assert.equal(pkg.license, 'MIT')
   assert.ok(fs.existsSync(path.join(root, 'LICENSE')))
   assert.match(read(path.join('LICENSE')), /^MIT License/)
-  for (const file of ['package.json', 'CHANGELOG.md', 'README.md', 'README.zh.md']) {
+  for (const file of ['package.json', 'CHANGELOG.md', 'README.md', 'README-zh.md']) {
     assert.ok(script.includes(file), `release.mjs must know about ${file}`)
   }
 })
