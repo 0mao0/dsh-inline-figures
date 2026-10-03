@@ -1,12 +1,17 @@
-// E2E in-place: run from the INSTALL dir, importing the installed plugin and
-// the installed services. Verifies PNG embed + magic + SVG twin for all kinds.
+// E2E: mount the real cordis services, then the plugin from this checkout, and
+// execute every spec kind. Asserts the PNG embed, the PNG magic bytes, the SVG
+// twin, and that unloading the plugin removes the tool again (which only holds
+// if every resource was registered through ctx.effect).
+//
+// Run from the package root with dependencies present:
+//     node scripts/_repro-png-check.mjs
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as dshTools from '@deepseek-ai/dsh-tools'
-import * as pluginNs from '@local/dsh-inline-figures'
+import * as pluginNs from '../index.js'
 
 const ToolRuntime = dshTools.ToolRuntime ?? dshTools.default
 const root = new Context()
@@ -19,7 +24,8 @@ async function step(label, target, config) {
 await step('SystemPrompt', SystemPrompt, { personaPrefix: '' })
 await step('ToolRuntime', ToolRuntime, {})
 const plugin = { name: pluginNs.name, inject: pluginNs.inject, Config: pluginNs.Config, apply: pluginNs.apply }
-await step('inline-figures', plugin, {})
+const fiber = await root.registry.plugin(plugin, {})
+console.log('OK    inline-figures')
 
 const tool = root.tools?.get?.('draw_figure', root)
 console.log('draw_figure registered:', !!tool)
@@ -56,5 +62,14 @@ for (const [name, spec] of Object.entries(cases)) {
   }
 }
 fs.rmSync(cwd, { recursive: true, force: true })
+
+// Disposal: host-plugin.md requires every contributed resource to be registered
+// through ctx.effect, and the returned cleanup to remove it. If the tool
+// survives an unload, disabling the plugin row leaves dead state behind.
+await fiber?.dispose?.()
+const leaked = !!root.tools?.get?.('draw_figure', root)
+console.log(`${leaked ? 'FAIL' : 'PASS'} unload removes draw_figure (ctx.effect registration)`)
+leaked ? fail++ : pass++
+
 console.log(`\nE2E: ${pass} pass, ${fail} fail`)
 if (fail) process.exit(1)

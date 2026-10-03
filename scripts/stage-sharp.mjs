@@ -10,8 +10,20 @@ import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { execFileSync } from 'node:child_process'
 const here = path.dirname(fileURLToPath(import.meta.url))
-const APP_ROOT = 'C:\\Users\\飞\\AppData\\Local\\Programs\\DeepSeek Harness\\resources'
+const argv = process.argv.slice(2)
+const opt = (name) => {
+  const i = argv.indexOf(`--${name}`)
+  return i === -1 ? undefined : argv[i + 1]
+}
+// Where DSH is installed. Override with --app-resources <dir> or DSH_APP_RESOURCES.
+const APP_ROOT = opt('app-resources') ?? process.env.DSH_APP_RESOURCES ??
+  path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'Programs', 'DeepSeek Harness', 'resources')
 const ASAR_UNPACKED = path.join(APP_ROOT, 'app.asar.unpacked', 'dsh', 'node_modules', '@img', 'sharp-win32-x64', 'lib')
+if (!fs.existsSync(path.join(APP_ROOT, 'app.asar'))) {
+  console.error(`no app.asar under ${APP_ROOT}\n` +
+    'point the script at your DSH install:  node scripts/stage-sharp.mjs --app-resources "<app>\\resources"')
+  process.exit(1)
+}
 
 function copyDir(src, dst) {
   fs.mkdirSync(dst, { recursive: true })
@@ -81,9 +93,15 @@ const cachePng = await smoke(sharpSrc)
 console.log(`OK cache staged+smoked: ${sharpSrc} (native: ${cacheNode}, png ${cachePng} bytes)`)
 // 2) Every install dir gets a COMPLETE copy (wrapper + nested deps + native),
 //    smoke-tested through the same node_modules resolution the runtime uses.
+//    Layouts: the persistent staging copy, plus one directory per DSH profile.
+const pkgName = JSON.parse(fs.readFileSync(path.join(path.dirname(here), 'package.json'), 'utf8')).name
+const profilesRoot = path.join(os.homedir(), '.dsh', 'profiles')
+const profileNames = opt('profile')
+  ? [opt('profile')]
+  : (fs.existsSync(profilesRoot) ? fs.readdirSync(profilesRoot).filter((n) => !n.includes('.bak')) : [])
 const INSTALL_DIRS = [
-  'C:\\Users\\飞\\.dsh\\vendor\\dsh-inline-figures',
-  'C:\\Users\\飞\\.dsh\\profiles\\desktop\\node_modules\\@local\\dsh-inline-figures',
+  path.join(os.homedir(), '.dsh', 'vendor', pkgName.split('/').pop()),
+  ...profileNames.map((n) => path.join(profilesRoot, n, 'node_modules', ...pkgName.split('/'))),
 ]
 for (const dir of INSTALL_DIRS) {
   if (!fs.existsSync(dir)) { console.log(`skip (absent): ${dir}`); continue }

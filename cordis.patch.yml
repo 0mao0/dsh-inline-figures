@@ -1,5 +1,7 @@
-# Inserts the host-side inline-figures plugin row into the active profile.
+# Inserts the host-side inline-figures row into the active profile.
+# The row name must be the published package name: the Loader resolves it as a
+# package specifier, and test/compliance.test.js keeps the two in lockstep.
 - insert:
     - id: inline-figures
-      name: '@local/dsh-inline-figures'
+      name: 'dsh-inline-figures'
       config: {}

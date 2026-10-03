@@ -1,3 +1,12 @@
+# LEGACY / UNSUPPORTED - the supported install path is the official one:
+#     dsh plugin --profile <profile> add dsh-inline-figures
+#     dsh plugin --profile <profile> add github:0mao0/dsh-inline-figures
+# or the Web sidebar's Plugins page, or the plugin_manager tool. Those run pnpm
+# in the profile, resolve the bundle's peer dependencies from the harness, and
+# arm the runtime version check. Keep this script only for an offline machine
+# where no registry is reachable; it hand-writes the profile manifest, which the
+# official flow deliberately does for you.
+#
 # Installs the dsh-inline-figures bundle into a DSH profile (default: desktop) - FULLY OFFLINE.
 #
 # Why this script exists: the DSH Node process resolves an external bundle's
@@ -23,7 +32,7 @@
 # app tree and rebuild the closure with build-offline-closure.mjs.
 param(
   [string]$Profile = 'desktop',
-  [string]$Tree = (Join-Path (Get-Location) '_probe\dshtree\dsh\node_modules')
+  [string]$Tree = ''
 )
 $ErrorActionPreference = 'Stop'
 $pkgDir = Split-Path -Parent $PSScriptRoot
@@ -31,7 +40,27 @@ $pkgName = (Get-Content (Join-Path $pkgDir 'package.json') -Raw | ConvertFrom-Js
 $profileDir = Join-Path $env:USERPROFILE ".dsh\profiles\$Profile"
 $vendor = Join-Path $env:USERPROFILE '.dsh\vendor\dsh-inline-figures'
 $installDir = Join-Path $profileDir "node_modules\$pkgName"
-if (-not (Test-Path $Tree)) { throw "app node_modules tree not found: $Tree (unpack the app's dsh tree first)" }
+
+# The host package tree: DSH ships it inside resources/app.asar, so it has to be
+# extracted once (scripts/extract-app-tree.mjs). Without -Tree we probe the two
+# layouts this repo produces.
+if (-not $Tree) {
+  $roots = @((Get-Location).Path, $pkgDir)
+  $candidates = @()
+  foreach ($r in $roots) {
+    $candidates += (Join-Path $r '.dsh-tree\dsh\node_modules')
+    $candidates += (Join-Path $r '_probe\dshtree\dsh\node_modules')
+  }
+  $Tree = ($candidates | Where-Object { Test-Path $_ } | Select-Object -First 1)
+}
+if (-not $Tree -or -not (Test-Path $Tree)) {
+  throw @"
+app node_modules tree not found. Extract it once, then install:
+
+  node scripts/extract-app-tree.mjs "<app>\resources\app.asar" .dsh-tree "dsh/node_modules/"
+  pwsh -File scripts/install-to-profile.ps1 -Profile $Profile -Tree ".dsh-tree/dsh/node_modules"
+"@
+}
 
 # 1) fresh package files into both the install dir and the persistent staging
 foreach ($d in @($installDir, $vendor)) {

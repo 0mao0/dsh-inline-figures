@@ -8,7 +8,8 @@ import os from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const [srcSvg, outStem] = process.argv.slice(2)
-const workspace = 'C:\\Users\\飞\\Documents\\deepseek-harness\\default-workspace'
+// Workspace root: 3rd argument, else $DSH_WORKSPACE, else the current directory.
+const workspace = process.argv[4] ?? process.env.DSH_WORKSPACE ?? process.cwd()
 const pluginDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const outDir = path.join(workspace, '.dsh-figures', 'fallback')
 fs.mkdirSync(outDir, { recursive: true })

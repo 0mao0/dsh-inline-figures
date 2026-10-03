@@ -1,7 +1,10 @@
 // Validate _asar-lite.cjs: list sharp files, extract package.json + index.cjs,
 // check content signatures. Quiet output.
+const os = require('node:os')
+const path = require('node:path')
 const lite = require('./_asar-lite.cjs')
-const A = 'C:/Users/飞/AppData/Local/Programs/DeepSeek Harness/resources/app.asar'
+// Point DSH_APP_ASAR at your own install; the default is the Windows layout.
+const A = process.env.DSH_APP_ASAR ?? path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'Programs', 'DeepSeek Harness', 'resources', 'app.asar')
 const files = lite.listFiles(A)
 const sharpDist = files.filter((f) => /\/sharp\/dist\//.test(f.path))
 console.log('total files:', files.length, '| sharp dist:', sharpDist.length)

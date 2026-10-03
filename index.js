@@ -18,17 +18,19 @@ import { writeFigure, pruneFigures, figureRelPath, figureDirName } from './lib/h
 // SVG as the archival vector copy.
 //
 // sharp is resolved in layers, first hit wins (lazy, once, cached):
-//  1. <plugin>/node_modules/sharp/dist/index.cjs — the COMPLETE copy staged by
-//     scripts/stage-sharp.mjs (wrapper + nested deps + native + DLLs).
-//  2. ~/.dsh/cache/inline-figures/sharp-js — the same staging in the shared
-//     cache, the portable fallback for every install layout.
-//     Both are extracted from the app install (asar wrapper + unpacked
-//     native), byte-calibrated and smoke-tested by the staging script.
-// Each layer names the .cjs ENTRY FILE and imports it by absolute file URL.
-// A bare import('sharp') is NOT used: node_modules resolution is
-// layout-dependent and was observed landing on an unrelated older copy in the
-// user's home node_modules instead of this plugin's staged one (probe:
-// scripts/_validate-cache-load.cjs). The explicit file URL is deterministic.
+//  1. <plugin>/node_modules/sharp/dist/index.cjs — the nested layout pnpm uses
+//     for an isolated install, and the offline staging copy.
+//  2. bare import('sharp') — Node resolution from this file. The official
+//     plugin-manager install runs pnpm in the profile with the hoisted linker,
+//     so a declared dependency lands at the profile root and resolves here.
+//  3. ~/.dsh/cache/inline-figures/sharp-js — offline staging used when the
+//     registry was unreachable (scripts/stage-sharp.mjs).
+//     Layers 1 and 3 are extracted from the app install (asar wrapper +
+//     unpacked native), byte-calibrated and smoke-tested by the staging script.
+// Explicit file URLs are deterministic where Node's resolution is
+// layout-dependent; a bare import alone was observed landing on an unrelated
+// older copy in the user's home node_modules. Layer 2 exists because the
+// official install layout has no nested copy to name.
 // Any layer that throws is skipped; total failure degrades to SVG-only and
 // writes raster-diagnostic.txt next to this file (host-side failures are
 // otherwise invisible: warnings reach the model, not the user).
@@ -42,6 +44,10 @@ function loadRasterizer() {
       const attempts = [
         async () => {
           const mod = await import(pathToFileURL(LOCAL_SHARP).href)
+          return mod.default ?? mod
+        },
+        async () => {
+          const mod = await import('sharp')
           return mod.default ?? mod
         },
         async () => {
@@ -107,7 +113,10 @@ export function apply(ctx, config) {
     return u
   }
 
-  ctx.tools.register(defineTool({
+  // Host contract: every resource a plugin contributes is registered through
+  // ctx.effect (or ctx.on) and its disposer returned, so disabling or unloading
+  // the row actually removes the tool and the prompt section.
+  ctx.effect(() => ctx.tools.register(defineTool({
     name: 'draw_figure',
     description: 'Render an explanatory vector figure and return the inline markdown line to copy VERBATIM into your reply. Preferred: hand-author an SVG for free-form structures and pass kind=raw_svg; preset kinds architecture/compare/timeline/chart compute layout from JSON specs. The figure is saved in the session workspace and rendered full-width. Use it by judgment, but lean toward drawing: wherever the answer carries structure (components and relations, a flow or sequence, a timeline/state machine, a comparison, counts/proportions/a ranking), draw a figure THERE and delete the paragraph it replaces. Most explanatory answers want at least one figure; a multi-topic answer wants one per structure. A figure replaces prose, it does not stack on it. Only atomic replies are exempt (one number, one date, one name, a one-line definition, a small edit, pure code). Never use ASCII art instead.',
     parameters: {
@@ -191,17 +200,22 @@ export function apply(ctx, config) {
       if (exec.agent) usageOf(exec.agent).drawCalls += 1
       return { path: embedRel, markdown: `![${args.alt}](${embedRel})`, warnings: rendered.warnings }
     },
-  }))
+  })), 'inline-figures: draw_figure tool')
 
   // systemPrompt.section() treats `text` as a literal string (interpolate:false
   // bypasses variable interpolation entirely) — a function here would be
   // stringified into the prompt. Tool visibility is gated by `config.enabled`.
-  ctx.systemPrompt.section({
-    name: GUIDANCE_TITLE,
-    order: 9100,
-    interpolate: false,
-    text: GUIDANCE_TEXT,
-  })
+  // section() returns "the exact Cordis effect disposer", so it is registered
+  // the same way as the tool.
+  ctx.effect(
+    () => ctx.systemPrompt.section({
+      name: GUIDANCE_TITLE,
+      order: 9100,
+      interpolate: false,
+      text: GUIDANCE_TEXT,
+    }),
+    'inline-figures: guidance section',
+  )
 
   // Soft nudge, modeled exactly on the first-party repeat-tool-reminder plugin:
   // it adds one short, self-contained reminder to the NEXT tool call's

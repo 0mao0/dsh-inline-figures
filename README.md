@@ -1,74 +1,144 @@
 # dsh-inline-figures
 
-DSH 宿主插件：让模型在回复正文里穿插矢量解释图（WorkBuddy 式图文穿插）。
+[![version](https://img.shields.io/badge/version-0.0.1-blue)](CHANGELOG.md)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![ci](https://github.com/0mao0/dsh-inline-figures/actions/workflows/ci.yml/badge.svg)](https://github.com/0mao0/dsh-inline-figures/actions/workflows/ci.yml)
 
-```
-模型调 draw_figure → 手写 SVG(raw_svg，主路径) 或 4 型 JSON 规格(兜底) → 消毒/布局引擎产出 SVG
-→ 写入 <workspace>/.dsh-figures/<会话>/N-slug.svg → 模型把返回的 ![alt](path) 原样嵌入正文
-→ DSH 原生 Markdown 图片渲染（满宽、不折叠、点击放大）
-```
+**English** | [中文](README.zh.md)
 
-## 特性
+**Description.** A **DeepSeek Harness (DSH) host plugin** that makes the model draw **clean vector figures inline between the paragraphs of its reply**. One `draw_figure` tool call turns a JSON figure spec or a hand-authored SVG into a full-width figure file and returns a single Markdown line; the model pastes that line where the figure belongs. Text, figure, text — and nothing collapses into a tool card when the turn ends.
 
-- **判断式出图（非仪式）**：模型顺着回答写，在"这里用图比用话更快更清楚"的那个点才插图——不先出图、不摊配额；多数回答 0–2 张、常为 0；散文已够清楚（一句话查询/定义/单值/纯代码）就不画。判据是**比较性**的，不是"命中结构就画"。图内标签与图旁 caption 用 ASD-STE100 式受控语言（短句、一词一义、主动语态、名词短语标签），图外正文保持自然中文。
-- **SVG 优先**：主路径是模型手写 `raw_svg`（任意结构：树、分支流水线、状态图、自定义），消毒器注入主题样式 + 箭头 marker，保证满宽与明暗自适应；`architecture`/`compare`/`timeline`/`chart` 四型 JSON 规格为兜底（标准形/数值图用布局引擎确定性排版，永不手写坐标）。**永不用 ASCII/Unicode 字符画**。
-- **四型排版引擎**：`architecture`（分层 + P0/P1 徽章 + danger 分组框 + 反馈边）、`compare`（左右对照 + 语义色）、`timeline`（步骤流 done/active/todo）、`chart`（bar/line/pie + 轴刻度 + 标签自动旋转）。
-- **满宽渲染**：viewBox 680 排版、固有宽 1600，浏览器等比缩放到内容列宽；矢量无损耗。
-- **明暗自适应**：SVG 内嵌 `@media (prefers-color-scheme)` 双色板（跟随系统主题，见"已知局限"）。
-- **开关**：Settings 插件表单 `enabled`（volatile，改完新会话生效）；关闭后工具与系统提示引导同时消失。
-- **PNG 光栅内嵌（预览兼容）**：GUI 文件路由带 CSP `sandbox` 响应头，Chromium 拒绝光栅化此类 SVG `<img>`（"图片无法预览"）。因此每次出图在写 `.svg` 后光栅化同名 `.png`（2x 宽，sharp 走宿主 app 自带的 libvips），markdown 嵌 PNG，`.svg` 保留作矢量存档；光栅失败自动回退嵌 SVG 并以 warnings 告知。sharp 由 `node scripts/stage-sharp.mjs` 从宿主安装（asar wrapper + unpacked native/DLL）完整实装到插件 `node_modules/sharp` 与 `~/.dsh/cache`——**每次升级 DSH 应用或重装插件后必须重跑**：安装器的 prune 不认识未声明的实装目录，`pnpm install` 可能把它们整个剪掉（本机实测踩过：插件 package.json 里写 optionalDependencies 也救不了，宿主解析链不认）。若运行期两级解析全失败，工具会自动回退 SVG-only 并在插件目录留下 `raster-diagnostic.txt` 说明原因。
-- **卫生**：`.dsh-figures/.gitignore`（内容 `*`，产物不进 git）、每会话目录 200 文件 LRU 清理（PNG 随其 SVG 成对清理）、标签截断以 warnings 回报模型。
+**Keywords.** DeepSeek Harness plugin · DSH host plugin · Cordis bundle · `draw_figure` · inline SVG figures · text–figure–text answers · vector diagrams in AI chat · ASD-STE100 figure labels · LLM output readability
 
-## 开发
+![The same answer without the plugin on the left, and with the plugin on the right](docs/assets/before-after.png)
 
-```powershell
-cd packages/dsh-inline-figures
-node --test                      # 全部测试（零依赖，node:test）
-$env:UPDATE_GOLDEN='1'; node --test test/architecture.test.js   # 重新生成布局快照（目检后提交）
-```
+*Same facts, same answer. Left: plain Markdown. Right: the model drew the structure and deleted the paragraph it replaced.*
 
-## 安装到本地 DSH
+## Why
+
+Long model answers are walls of text. Two fixes are well known, and this plugin does both:
+
+- **Write plainer.** The injected guidance asks for prose at roughly 80% **ASD-STE100** — Simplified Technical English, the controlled language of aircraft maintenance manuals. Andrej Karpathy [recommended ASD-STE100](https://www.searchenginejournal.com/karpathy-llm-aircraft-manual-writing/591813/) for exactly this problem, and [ranked diagrams above prose](https://www.explainx.ai/blog/karpathy-understand-llm-outputs-ste100-diagrams-html-video-2026) as the next step for understanding a model's output. Figure labels here are the strictest tier of the same style: noun phrases, six words at most, one concept per label.
+- **Draw the structure.** Anything with parts, flow, sequence, comparison, or counts becomes a figure instead of a paragraph, placed at the point it illuminates.
+
+## Install
+
+DSH has its own plugin manager, so nothing is copied by hand and no package-manager command runs against your profile.
 
 ```powershell
-pwsh -File packages/dsh-inline-figures/scripts/install-to-profile.ps1            # 默认 desktop profile
-pwsh -File packages/dsh-inline-figures/scripts/install-to-profile.ps1 -Profile web
+# from npm
+dsh plugin --profile <profile> add dsh-inline-figures
+
+# or straight from this repository, no registry involved
+dsh plugin --profile <profile> add github:0mao0/dsh-inline-figures
 ```
 
-**全程离线**：脚本从 app 解包树（默认 `_probe/dshtree/dsh/node_modules`，可用 `-Tree` 指定）计算依赖闭包（`build-offline-closure.mjs`，32 包），实体化进安装目录与持久 staging（`~/.dsh/vendor`），然后手写回 profile manifest 并用宿主同款解析做加载探针。完成后**重启 DSH 应用**，Settings → 内置插件 → inline-figures 应显示"运行中"。
+The Web sidebar's **Plugins** page does the same thing with a form, and an agent can do it with the `plugin_manager` tool (`install_bundle`, target = the directory of a local clone).
 
-为什么这么绕（全部本机实测踩过）：① 宿主 Node 对外部 bundle 的 `@deepseek-ai/*` import 走原生解析，asar 内的包在其解析链上不可见 → 闭包必须随 bundle 实体安装；② pnpm 会把 profile 顶层"未声明"的 node_modules 条目当冗余剪掉 → 闭包必须放在**安装目录内部**（自包含，已用改名探针验证）；③ `dsh plugin add`（pnpm）走 registry，网络不稳时中途失败会**回滚 manifest**、把 bundle 整个注销 → 改手动放置+manifest 注册，cordis 加载只认 manifest 与 node_modules 实体；④ `file:` 指工作区时 pnpm 移除依赖会顺 junction 毁源目录（发生过，git 救回）→ staging 用持久副本 `~/.dsh/vendor`。DSH 运行时升级后：重新解包 app 树、重跑脚本即可（闭包自动跟版本）。
+Then **restart DSH**. Host-side plugin code is loaded once per process, so a fresh JavaScript generation needs a restart; the plugin list can keep showing the previous state until then.
 
-## 非 DSH 宿主复用（自有 web 软件三件套）
+There is no build step. The harness supplies the packages this plugin imports, and `sharp` — the rasterizer behind previewable figures — ships prebuilt binaries.
 
-`lib/` 全部零 `@deepseek-ai` 依赖（有强制测试），包暴露 `./engine` 入口：
+### What the harness checks before it installs
+
+`package.json` pins the DSH runtime version this release was verified against, as **peer dependencies** on `@deepseek-ai/dsh-*`. The plugin manager evaluates those peers first and refuses an install on a different runtime with `incompatible-version` — a clear refusal, instead of a plugin that mounts and then misbehaves. To run it on another runtime anyway, grant the exact-version exemption:
+
+```powershell
+dsh plugin --profile <profile> allow-version dsh-inline-figures@0.0.1 --dsh-version <runtime> --accept-risk
+```
+
+Verified against **dsh 0.2.0-rc.2** (cordis 4.0.4). If you need a machine that cannot reach a registry at all, [docs/MAINTAINER-NOTES.md](docs/MAINTAINER-NOTES.md) keeps the offline installer as an unsupported fallback.
+
+## The `draw_figure` tool
+
+```
+draw_figure({ spec, alt, slug? }) -> { path, markdown, warnings }
+```
+
+A preset spec, laid out for you — never hand-write coordinates for these:
+
+```json
+{ "kind": "compare", "title": "Current vs target",
+  "rows": [{ "left": { "label": "Manual review" },
+             "right": { "label": "Automated gate", "tone": "ok" } }] }
+```
+
+The returned line, to paste verbatim:
+
+```
+![Current vs target](.dsh-figures/s3f2a9c1e-6f7d-4/1-compare.png)
+```
+
+| `kind` | Shape | Limits |
+|---|---|---|
+| `raw_svg` | Hand-authored SVG for trees, branching pipelines, state machines, anything custom | 32 KB spec |
+| `architecture` | Layered boxes, P0/P1 badges, danger groups, feedback edges | 2–6 layers × 1–6 nodes, 8 edges |
+| `compare` | Left/right columns with semantic tones (`default`/`danger`/`ok`/`muted`) | 1–6 rows |
+| `timeline` | Vertical steps marked `done`/`active`/`todo` | 2–10 steps |
+| `chart` | `bar`, `line` or `pie`, with axis ticks and label auto-rotation | 1–12 points |
+
+Specs are validated before layout and every error names its field, so a bad call comes back as a fixable message instead of a broken image. Figures are always SVG — never ASCII art, Unicode box drawing, or a code block.
+
+`raw_svg` is the primary path for free-form structure. The sanitizer rejects scripts, doctypes, entities and iframes, strips event attributes, external references, `<image>` and `<foreignObject>`, then injects a theme stylesheet and an arrow marker, so a hand-authored figure still follows the active colour scheme.
+
+## Files it writes
+
+```
+<session workspace>/.dsh-figures/<session>/<n>-<slug>.svg   vector original
+                                          <n>-<slug>.png   raster twin, embedded in the reply
+```
+
+A `.gitignore` holding `*` goes in the session directory, so `git status` stays clean. Each directory keeps its newest 200 figures; a pruned SVG takes its PNG twin with it. If rasterization fails, the reply embeds the SVG and the model is told why in `warnings` — a figure never fails the answer.
+
+## Use the engine without DSH
+
+`lib/` imports nothing from `@deepseek-ai/*` or cordis, and a test enforces it. The `./engine` entry is a plain module:
 
 ```js
-import { drawFigure, validateSpec, sanitizeSvg, GUIDANCE_TEXT } from '@local/dsh-inline-figures/engine'
-const { svg, warnings } = drawFigure({ kind: 'compare', title: '…', rows: [ … ] })
-// 1) 工具注册：在你的 agent 后端注册同 schema 工具，execute 里调 drawFigure
-// 2) 提示词：GUIDANCE_TEXT 直接贴进你的系统提示（含工具用法与穿插规则）
-// 3) 渲染：svg 字符串直接内联或存文件走你前端的 markdown 图片通道
+// from a clone:        import { ... } from './lib/engine.js'
+// from the package:    import { ... } from 'dsh-inline-figures/engine'
+import { drawFigure, validateSpec, sanitizeSvg, GUIDANCE_TEXT } from './lib/engine.js'
+
+const { svg, warnings } = drawFigure({
+  kind: 'timeline', title: 'Rollout',
+  steps: [{ label: 'Design', state: 'done' }, { label: 'Build', state: 'active' }],
+})
 ```
 
-## 宿主工具 schema 契约（踩过的坑，勿回退）
+To reuse it in your own agent: register an equivalent tool with the same schema, paste `GUIDANCE_TEXT` into your system prompt, and render the returned SVG (or your own raster of it) through your Markdown image channel.
 
-`defineTool` 的 schema 编译器（dsh-tools）有两条硬规则，违反时插件**"启动失败"或每次调用报 `invalid arguments`**：
+## Development
 
-1. **每个 `type:'object'` 节点**（顶层与所有嵌套）必须显式写 `additionalProperties: true|false`，否则 `defineTool` 在注册时抛错（→ Settings 里"启动失败"）。
-2. `additionalProperties:false` 的对象会在**运行时**拒绝任何不在 `properties` 白名单里的键。`spec` 是异构的（raw_svg + 4 种 preset，各自带 layers/nodes/rows/steps/data 等嵌套），因此 `spec` 必须保持 **`additionalProperties: true`（开放）**——宿主只负责透传，真正的深校验在 execute 期的 `validateSpec()`/`drawFigure()`。把它改成 `false` 会让**每一次调用**都失败于 `"spec.kind" is not a declared property`。
-3. output 用的是另一套 "value schema" DSL：**只能逐属性写 `required: true`**，写顶层 `required:[...]` 数组会编译报错。
+```powershell
+node --test                                            # full suite, no dependencies
+$env:UPDATE_GOLDEN='1'; node --test test/architecture.test.js   # refresh layout snapshots, then eyeball the diff
+node scripts/make-readme-image.mjs                     # rebuild the README image
+node scripts/_repro-png-check.mjs                      # real cordis: mounts the plugin, executes all five kinds, proves unload cleanup
+node scripts/_repro-nudge.mjs                          # real cordis: drives the nudge events
+```
 
-回归防线：`scripts/_repro-png-check.mjs` 在真实 cordis + ToolRuntime 下把五种 spec **逐一 execute**，断言 markdown 嵌 PNG + 磁盘 PNG magic + SVG 孪生文件存在（不是只验证注册）。改完 index.js 后在两个安装目录各跑一遍：`node scripts/_repro-png-check.mjs`，各见 `E2E: 5 pass` 才算数。另两个冒烟脚本：`scripts/_validate-loader.mjs`（两级 sharp 加载各出真 PNG + 打印 bare import 的实际落点，证明为何用显式文件 URL）、`scripts/_validate-lite.cjs`（asar 读取器：listPackage/字段长度与实际载荷不一致，靠 NUL 与 `}` 定界后按字节校准 base）。
+`test/compliance.test.js` is the gate for the official host contract described under [Install](#what-the-harness-checks-before-it-installs): host packages as peers, the compatibility check armed, the patch row matching the package name, publishable identity, the display metadata, and every resource registered through `ctx.effect`.
 
-加载器为何写显式 `.cjs` 文件 URL 而不是 bare `import('sharp')`：实测 bare 解析**随安装布局变化**——在插件安装目录内它落到本插件的 `dist/index.mjs`，但从工作区包目录跑则落到用户家目录 `~\node_modules\sharp\lib\index.js`（另一个更老的副本）。显式文件 URL 两个位置都确定命中同一个 staged 副本。
+Under a sandboxed shell, `node --test` can fail with `spawn EPERM` (it spawns one child per test file). `node --test --test-isolation=none` runs the same suite in one process.
 
-## 图片预览失败的历史根因（勿回退）
+## Releasing
 
-GUI markdown 的 `![]()` 经 `<img src>` 由 `api/file?path=…` 喂给浏览器；服务端（dsh-api-session-controller/media-references.js）对所有文件带 `Content-Security-Policy: sandbox` + `nosniff`（防同源开放 HTML/SVG XSS）。Chromium 对带 CSP sandbox 的 SVG 拒绝光栅化 → `<img>` onError → UI 显示"图片无法预览 · alt"。这不是 MIME 问题（`.svg→image/svg+xml` 本来正确），也**不是插件能改服务端头的事**——唯一干净解即上述 PNG 光栅内嵌（PNG 无文档语义，sandbox 头无害）。
+Patch-only for now: 0.0.1 -> 0.0.2 -> 0.0.3.
 
-## 已知局限
+```powershell
+# add notes under "## [Unreleased]" in CHANGELOG.md, then:
+node scripts/release.mjs              # bump, roll the changelog, sync both README badges, test, commit, tag
+node scripts/release.mjs --dry-run    # print the plan, change nothing
+node scripts/release.mjs --push       # also push the commit and tag
+```
 
-1. 主题经 `prefers-color-scheme` 跟随**系统**主题；若你的应用内主题与系统相反，图与界面色调会拧（彻底解法需客户端插件配合，规划中）。
-2. 桌面壳 `dsh-app:` 页面对认证文件路由支持存疑；本插件按 Web GUI（http）设计并已验证。
-3. 文本宽度为近似测量（CJK 1em / 拉丁 0.55em），极端长词会截断加 `…` 并回报 warning。
-4. 图静态、不可交互（设计决策）。
+Pushing a `v*` tag makes the release workflow verify that the tag matches `package.json`, run the tests, and publish the GitHub Release from the changelog section. `node scripts/release.mjs --notes 0.0.1` prints one section, for notes elsewhere.
+
+## Known issues
+
+- **Figures render light in a dark GUI.** The PNG raster path freezes the stylesheet's light values, so text that sits on the transparent canvas (titles, axis labels, timeline labels) is hard to read on a dark background. Box interiors stay readable. Fix planned: an opaque figure background before rasterizing.
+- **Concurrent draws can collide.** Three or more `draw_figure` calls in one step with the same slug can fail to allocate a file name. Fix planned: more write retries.
+
+## License
+
+[MIT](LICENSE)

@@ -1,0 +1,8 @@
+# Keep every text file at LF. The layout goldens in test/golden/ are compared
+# byte for byte against generated SVG, so a CRLF checkout on Windows would fail
+# the suite for a reason that has nothing to do with the code.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.node binary
+*.dll binary

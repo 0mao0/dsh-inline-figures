@@ -1,12 +1,14 @@
 // E2E for the nudge path: mount real services + plugin, register a dummy tool,
 // drive the tool/post-execute + agent/pre-step events, assert the reminder lands.
+// Run from the package root with dependencies present:
+//     node scripts/_repro-nudge.mjs
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as dshTools from '@deepseek-ai/dsh-tools'
-import * as pluginNs from '@local/dsh-inline-figures'
+import * as pluginNs from '../index.js'
 
 const ToolRuntime = dshTools.ToolRuntime ?? dshTools.default
 const root = new Context()

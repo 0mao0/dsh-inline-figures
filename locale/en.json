@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Inline Figures",
+    "description": "The model draws clean vector figures inline between the paragraphs of its reply with the draw_figure tool, so answers arrive as text-figure-text instead of a wall of text."
+  }
+}

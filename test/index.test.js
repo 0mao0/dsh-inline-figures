@@ -116,9 +116,12 @@ test('rasterizes to PNG with graceful SVG fallback (option A)', () => {
   // layout-dependent and was probe-verified landing on an unrelated older copy
   // in the user's home node_modules instead of this plugin's staged one
   // (scripts/_validate-cache-load.cjs prints the resolved path).
-  assert.match(src, /await import\(pathToFileURL\(LOCAL_SHARP\)\.href\)/)
-  assert.match(src, /await import\(pathToFileURL\(STAGED_SHARP\)\.href\)/)
-  assert.ok(!/await import\('sharp'\)/.test(src), 'bare import resolution is layout-dependent, do not regress')
+  assert.match(src, /await import\(pathToFileURL\(LOCAL_SHARP\)\.href\)/, 'layer 1: the nested layout and the offline staging copy')
+  assert.match(src, /await import\('sharp'\)/, "layer 2: bare resolution - the official profile install hoists the declared dependency to the profile root")
+  assert.match(src, /await import\(pathToFileURL\(STAGED_SHARP\)\.href\)/, 'layer 3: the offline staging cache')
+  // Order matters: the declared copy must win over the unrelated copy in the
+  // user's home node_modules that bare resolution once landed on.
+  assert.ok(src.indexOf("await import('sharp')") < src.indexOf('pathToFileURL(STAGED_SHARP)'), 'layers must stay in order')
   // Failed loads leave a visible trace for the human, not just the model.
   assert.match(src, /raster-diagnostic\.txt/)
   // Staged host sharp: plugin-local copy first, then the ~/.dsh cache (both

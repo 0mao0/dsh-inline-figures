@@ -1,3 +1,8 @@
+# LEGACY workaround. The official install path does not need it: the manifest
+# declares the host packages as peer dependencies, so pnpm never puts a second
+# copy of them in the profile and this scope-identity problem cannot arise.
+# Keep this only for an install made by scripts/install-to-profile.ps1.
+#
 # Nests the profile's flattened @deepseek-ai/* copies under this plugin's own
 # node_modules, so the host keeps exactly one copy of each built-in package.
 #
@@ -24,7 +29,7 @@
 # nested node_modules. Run this after any pnpm reinstall that re-flattens them.
 param(
   [string]$Profile = 'desktop',
-  [string]$PkgName = '@local/dsh-inline-figures'
+  [string]$PkgName = 'dsh-inline-figures'
 )
 
 $ErrorActionPreference = 'Stop'
