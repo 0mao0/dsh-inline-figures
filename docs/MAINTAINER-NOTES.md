@@ -41,13 +41,17 @@ README 图片不是手搓的：`node scripts/make-readme-image.mjs`（before/aft
 
 ## 2026-10 复核结论（待修）
 
-以下四项目前仍未修，对应 README 的 Known issues：
+### 已在 0.0.2 修掉
 
-1. **暗色模式在 PNG 路径失效**。`lib/primitives.js` 的 `@media (prefers-color-scheme:dark)` 只在浏览器渲染 SVG 时生效；改成嵌 PNG 后渲染者是 sharp/librvg，没有主题偏好。实测交付 PNG 像素：浅色 `#f4f4f2` 148,205 px，深色 `#2f2f2d` 36 px。盒内文字仍可读，标题/轴标签/时间线标签落在透明画布上，暗色界面下不可读。
-   修法：栅格前注入一层整幅不透明底（只影响 PNG，SVG 存档保持透明）。
-2. **同名并发写失败**。`lib/host-utils.js` 的写盘重试只有 2 次，slug 默认等于 `spec.kind`，模型一步内发多个 `draw_figure` 时实测 5 并发丢 3。修法：重试次数提到 8，或文件名带 `callId`。
+1. **暗色模式在 PNG 路径失效**。`lib/primitives.js` 的 `@media (prefers-color-scheme:dark)` 只在浏览器渲染 SVG 时生效；改成嵌 PNG 后渲染者是 sharp/librsvg，没有主题偏好。实测交付 PNG 像素：浅色 `#f4f4f2` 148,205 px，深色 `#2f2f2d` 36 px。
+   **修法**：栅格前注入一层整幅不透明底（`index.js` 的 `PNG_BACKDROP`，`#fbfbfa`），**只影响 PNG**；`.svg` 存档保持透明，浏览器渲染它时仍跟随主题。回归：`_repro-png-check.mjs` 对每张产出的 PNG 断言无透明像素（`opaque:true`）。
+2. **同名并发写失败**。slug 默认等于 `spec.kind`，模型一步内发多个 `draw_figure` 时实测 5 并发丢 3。
+   **修法**：不是简单加重试次数——那会让重试一直撞在进循环前读到的陈旧序号上；改为**每次重试重新 `readdir`** 再算序号（`WRITE_ATTEMPTS = 8`），任意并发下都会收敛。回归：`test/host-utils.test.js` 让 8 个同名并发写全部成功、序号连续。
+
+### 仍未修
+
 3. **引导语脂肪**。`GUIDANCE_TEXT` 6,133 字符（约 1,700 token）+ 工具描述 902 + `SPEC_DESCRIPTION` 909 ≈ 2,200 token 常驻系统提示，且"SVG 优先/永不用 ASCII/原子回答豁免"三处在引导语与工具描述里重复。ASD-STE100 散文风格规则与出图无关，可移出。
-4. **index.js 的测试是源码字符串匹配**。`test/index.test.js` 对 index.js 做正则断言，语义等价的重构会挂、真 bug 能过。修法：抽出 `executeDraw(args, deps)` 接缝，把 `scripts/_repro-*.mjs` 的断言搬进 `node --test`。
+4. **index.js 的 `execute` 仍没有被单元测试直接覆盖**。`test/index.test.js` 是源码正则断言，语义等价的重构会挂、真 bug 能过；目前靠 `scripts/_repro-png-check.mjs`（真实 cordis）兜底。修法：抽出 `executeDraw(args, deps)` 接缝，把 e2e 断言搬进 `node --test`。
 
 配套复现脚本在仓库外的 `_probe/figs-review/`（像素统计、并发压测、布局扫描、依赖与提示词计量），未纳入版本控制。
 
