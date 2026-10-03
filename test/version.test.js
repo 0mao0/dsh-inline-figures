@@ -42,7 +42,11 @@ test('package.json holds a plain x.y.z version', () => {
   assert.match(pkg.version, /^\d+\.\d+\.\d+$/)
 })
 
-test('the changelog carries an Unreleased section', () => {
+test('the changelog carries exactly one Unreleased section', () => {
+  // Two of them silently break scripts/release.mjs: it reads the first section
+  // up to the next heading, finds it empty, and refuses to release.
+  const count = changelog.split(/^## \[Unreleased\]/m).length - 1
+  assert.equal(count, 1, `CHANGELOG.md has ${count} '## [Unreleased]' headings`)
   assert.match(changelog, /^## \[Unreleased\]/m)
 })
 
