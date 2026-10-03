@@ -9,8 +9,6 @@ Add entries under `## [Unreleased]` as you work. `node scripts/release.mjs` roll
 
 ## [Unreleased]
 
-## [Unreleased]
-
 ### Changed
 
 - README head is a machine-readable `name` / `description` table, so a reader — human or model — can tell what the plugin is before reading any prose.
