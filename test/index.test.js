@@ -89,7 +89,7 @@ test('output contract matches the portable render fields', () => {
   }
 })
 
-// Verified end-to-end against the installed host (scripts/_repro-activate.mjs invokes
+// Verified end-to-end against the installed host (scripts/_repro-png-check.mjs invokes
 // draw_figure for every spec kind). Two host constraints, learned the hard way:
 //  1. defineTool throws at registration if an object node omits additionalProperties.
 //  2. At runtime an object with additionalProperties:false rejects every key NOT in
@@ -104,6 +104,39 @@ test('defineTool schema satisfies the host schema compiler', () => {
   const outputBlock = src.slice(src.indexOf('output: {'), src.indexOf('render:'))
   assert.ok(outputBlock.length > 0)
   assert.ok(!/required: \[/.test(outputBlock), 'no top-level required array in the output value schema')
+})
+
+test('rasterizes to PNG with graceful SVG fallback (option A)', () => {
+  // The GUI serves files with CSP sandbox; Chromium refuses to rasterize SVG
+  // served that way, so the embedded image MUST be the PNG twin.
+  // Rasterizer availability: host-side staging of the app's own sharp.
+  assert.match(src, /loadRasterizer\(\)/)
+  // Both layers name the .cjs ENTRY FILE and import it by absolute file URL.
+  // A bare import('sharp') is deliberately NOT used: node_modules resolution is
+  // layout-dependent and was probe-verified landing on an unrelated older copy
+  // in the user's home node_modules instead of this plugin's staged one
+  // (scripts/_validate-cache-load.cjs prints the resolved path).
+  assert.match(src, /await import\(pathToFileURL\(LOCAL_SHARP\)\.href\)/)
+  assert.match(src, /await import\(pathToFileURL\(STAGED_SHARP\)\.href\)/)
+  assert.ok(!/await import\('sharp'\)/.test(src), 'bare import resolution is layout-dependent, do not regress')
+  // Failed loads leave a visible trace for the human, not just the model.
+  assert.match(src, /raster-diagnostic\.txt/)
+  // Staged host sharp: plugin-local copy first, then the ~/.dsh cache (both
+  // extracted from app.asar by stage-sharp.mjs; cacheRoot decides which).
+  assert.match(src, /STAGED_SHARP/)
+  assert.match(src, /LOCAL_SHARP/)
+  assert.match(src, /\.dsh.*inline-figures.*sharp-js/)
+  // Load happens once, lazily (a cached promise), never per call.
+  assert.match(src, /rasterPromise === null/)
+  // Raster failure degrades to SVG embedding + a warning, never a failed draw.
+  assert.ok(src.includes("file.replace(/\\.svg$/, '.png')"), 'PNG twin derived from the svg name')
+  assert.match(src, /PNG raster failed/)
+  assert.match(src, /PNG rasterizer unavailable/)
+  const embed = src.slice(src.indexOf('let embedRel'), src.indexOf('await pruneFigures'))
+  assert.ok(embed.includes('embedRel = svgRel'), 'embed starts as SVG')
+  assert.match(embed, /embedRel = `\.dsh-figures\/\$\{dirName\}\/\$\{pngFile\}`/, 'successful raster embeds the PNG')
+  // Return value follows the embed target.
+  assert.match(src, /markdown: `!\[\$\{args\.alt\}\]\(\$\{embedRel\}\)`/)
 })
 
 test('delegates to portable modules only (no inline layout logic)', () => {

@@ -1,12 +1,75 @@
 // index.js — DSH host adapter. The ONLY file in this package importing @deepseek-ai/* packages.
 // All real logic lives in portable modules (lib/) that are unit-tested without cordis.
 import path from 'node:path'
+import os from 'node:os'
+import fsp from 'node:fs/promises'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { drawFigure, FigureError, validateSpec, formatErrors, GUIDANCE_TEXT, GUIDANCE_TITLE } from './lib/engine.js'
 import { decideNudge, NUDGE_REMINDER, NUDGE_SOURCE } from './lib/nudge.js'
 import { writeFigure, pruneFigures, figureRelPath, figureDirName } from './lib/host-utils.js'
+
+// Rasterizer (option A): the GUI serves figure files with a CSP `sandbox`
+// header, and Chromium refuses to rasterize an SVG served that way, so the
+// embedded <img> fails. PNG has no document semantics and previews fine. We
+// therefore rasterize every figure to PNG (2x) and embed the PNG, keeping the
+// SVG as the archival vector copy.
+//
+// sharp is resolved in layers, first hit wins (lazy, once, cached):
+//  1. <plugin>/node_modules/sharp/dist/index.cjs — the COMPLETE copy staged by
+//     scripts/stage-sharp.mjs (wrapper + nested deps + native + DLLs).
+//  2. ~/.dsh/cache/inline-figures/sharp-js — the same staging in the shared
+//     cache, the portable fallback for every install layout.
+//     Both are extracted from the app install (asar wrapper + unpacked
+//     native), byte-calibrated and smoke-tested by the staging script.
+// Each layer names the .cjs ENTRY FILE and imports it by absolute file URL.
+// A bare import('sharp') is NOT used: node_modules resolution is
+// layout-dependent and was observed landing on an unrelated older copy in the
+// user's home node_modules instead of this plugin's staged one (probe:
+// scripts/_validate-cache-load.cjs). The explicit file URL is deterministic.
+// Any layer that throws is skipped; total failure degrades to SVG-only and
+// writes raster-diagnostic.txt next to this file (host-side failures are
+// otherwise invisible: warnings reach the model, not the user).
+const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url))
+const STAGED_SHARP = path.join(os.homedir(), '.dsh', 'cache', 'inline-figures', 'sharp-js', 'sharp', 'dist', 'index.cjs')
+const LOCAL_SHARP = path.join(PLUGIN_DIR, 'node_modules', 'sharp', 'dist', 'index.cjs')
+let rasterPromise = null
+function loadRasterizer() {
+  if (rasterPromise === null) {
+    rasterPromise = (async () => {
+      const attempts = [
+        async () => {
+          const mod = await import(pathToFileURL(LOCAL_SHARP).href)
+          return mod.default ?? mod
+        },
+        async () => {
+          const mod = await import(pathToFileURL(STAGED_SHARP).href)
+          return mod.default ?? mod
+        },
+      ]
+      const failures = []
+      for (const [i, attempt] of attempts.entries()) {
+        try {
+          const factory = await attempt()
+          if (typeof factory === 'function') return factory
+          failures.push(`L${i + 1}: sharp export shape unexpected`)
+        } catch (error) {
+          failures.push(`L${i + 1}: ${String(error?.message ?? error).split('\n')[0].slice(0, 120)}`)
+        }
+      }
+      const reason = failures.join(' | ').slice(0, 400)
+      // One-time diagnostic file next to the plugin: host-side failures are
+      // otherwise invisible (warnings reach the model only, not the user).
+      try {
+        await fsp.writeFile(path.join(PLUGIN_DIR, 'raster-diagnostic.txt'), `${new Date().toISOString()}\n${reason}\n`)
+      } catch {}
+      return { reason }
+    })()
+  }
+  return rasterPromise
+}
 
 export const name = 'inline-figures'
 export const inject = ['tools', 'systemPrompt']
@@ -98,11 +161,35 @@ export function apply(ctx, config) {
       const dir = path.join(cwd, '.dsh-figures', dirName)
       const { file } = await writeFigure(dir, rendered.svg, args.slug ?? args.spec.kind)
       exec.signal.throwIfAborted()
+      const svgRel = `.dsh-figures/${dirName}/${file}`
+      // Rasterize for preview (see loadRasterizer). Failures degrade: keep the
+      // SVG embedding and tell the model why in warnings. 2x width keeps text
+      // crisp on the usual 1x/2x displays.
+      let embedRel = svgRel
+      const raster = await loadRasterizer()
+      if (typeof raster === 'function') {
+        try {
+          const viewBox = /viewBox="0 0 (\d+(?:\.\d+)?)/.exec(rendered.svg)
+          const baseWidth = viewBox ? Math.max(160, Math.min(1200, Number(viewBox[1]))) : 680
+          const png = await raster(Buffer.from(rendered.svg, 'utf8'))
+            .resize({ width: baseWidth * 2 })
+            .png()
+            .toBuffer()
+          exec.signal.throwIfAborted()
+          const pngFile = file.replace(/\.svg$/, '.png')
+          await fsp.writeFile(path.join(dir, pngFile), png)
+          embedRel = `.dsh-figures/${dirName}/${pngFile}`
+        } catch (error) {
+          // A raster failure must never fail the draw: keep the SVG and note it.
+          rendered.warnings.push(`PNG raster failed (${String(error?.message ?? error).split('\n')[0].slice(0, 120)}); the figure is embedded as SVG, which some previews block.`)
+        }
+      } else {
+        rendered.warnings.push(`PNG rasterizer unavailable (${raster.reason}); the figure is embedded as SVG, which some previews block. Run the plugin's scripts/stage-sharp.mjs to enable PNG.`)
+      }
       await pruneFigures(dir, FIGURE_LIMIT)
-      const rel = `.dsh-figures/${dirName}/${file}`
       // Count the successful draw for the nudge policy of this agent.
       if (exec.agent) usageOf(exec.agent).drawCalls += 1
-      return { path: rel, markdown: `![${args.alt}](${rel})`, warnings: rendered.warnings }
+      return { path: embedRel, markdown: `![${args.alt}](${embedRel})`, warnings: rendered.warnings }
     },
   }))
 

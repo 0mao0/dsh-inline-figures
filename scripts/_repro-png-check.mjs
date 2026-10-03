@@ -1,7 +1,5 @@
-// scripts/_repro-activate.mjs — activate inline-figures against REAL services,
-// then actually INVOKE draw_figure end-to-end (schema-compile + execute) so a
-// parameter-shape regression can never slip past again.
-// Run inside the installed package dir: node _repro-activate.mjs
+// E2E in-place: run from the INSTALL dir, importing the installed plugin and
+// the installed services. Verifies PNG embed + magic + SVG twin for all kinds.
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -27,7 +25,6 @@ const tool = root.tools?.get?.('draw_figure', root)
 console.log('draw_figure registered:', !!tool)
 if (!tool) process.exit(1)
 
-// Fake exec: signal + agent.session.header.{id,cwd}. Write into a temp workspace.
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'iff-verify-'))
 const mkExec = () => ({
   signal: new AbortController().signal,
@@ -46,9 +43,13 @@ let pass = 0, fail = 0
 for (const [name, spec] of Object.entries(cases)) {
   try {
     const res = await tool.execute({ spec, alt: `${name} verify`, slug: `verify-${name}` }, mkExec())
-    const ok = typeof res?.markdown === 'string' && res.markdown.startsWith('![') && /\.svg\)?$/.test(res.markdown)
-    console.log(`${ok ? 'PASS' : 'FAIL'} execute:${name} -> ${res?.path}  (warnings:${res?.warnings?.length ?? '?'})`)
-    ok ? pass++ : fail++
+    const ok = typeof res?.markdown === 'string' && res.markdown.startsWith('![') && /\.png\)?$/.test(res.markdown)
+    const onDisk = ok && fs.existsSync(path.join(cwd, res.path))
+    const magic = onDisk && fs.readFileSync(path.join(cwd, res.path)).subarray(0, 4).toString('hex') === '89504e47'
+    const svgTwin = onDisk && fs.existsSync(path.join(cwd, res.path.replace(/\.png$/, '.svg')))
+    const okAll = ok && onDisk && magic && svgTwin
+    console.log(`${okAll ? 'PASS' : 'FAIL'} execute:${name} -> ${res?.path}  (png:${!!magic} svgTwin:${!!svgTwin} warnings:${res?.warnings?.length ?? '?'})`)
+    okAll ? pass++ : fail++
   } catch (e) {
     console.log(`FAIL execute:${name} -> ${e?.message ?? e}`)
     fail++

@@ -43,6 +43,25 @@ test('writeFigure + pruneFigures round trip in temp dir', async () => {
   }
 })
 
+test('pruneFigures removes the .png twins of pruned svgs', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-fig-'))
+  try {
+    for (let i = 0; i < 4; i++) {
+      await writeFigure(dir, '<svg viewBox="0 0 1 1"></svg>', `p${i}`)
+      // Simulate the raster twin next to each svg.
+      fs.writeFileSync(path.join(dir, `${i + 1}-p${i}.png`), 'png')
+    }
+    const doomed = await pruneFigures(dir, 2)
+    assert.equal(doomed.length, 2)
+    assert.ok(!fs.existsSync(path.join(dir, '1-p0.svg')), 'oldest svg pruned')
+    assert.ok(!fs.existsSync(path.join(dir, '1-p0.png')), 'its png twin pruned with it')
+    assert.ok(fs.existsSync(path.join(dir, '4-p3.svg')), 'newest svg survives')
+    assert.ok(fs.existsSync(path.join(dir, '4-p3.png')), 'its png twin survives')
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('writeFigure collides safely when file exists', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-fig-'))
   try {

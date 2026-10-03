@@ -16,7 +16,8 @@ DSH 宿主插件：让模型在回复正文里穿插矢量解释图（WorkBuddy 
 - **满宽渲染**：viewBox 680 排版、固有宽 1600，浏览器等比缩放到内容列宽；矢量无损耗。
 - **明暗自适应**：SVG 内嵌 `@media (prefers-color-scheme)` 双色板（跟随系统主题，见"已知局限"）。
 - **开关**：Settings 插件表单 `enabled`（volatile，改完新会话生效）；关闭后工具与系统提示引导同时消失。
-- **卫生**：`.dsh-figures/.gitignore`（内容 `*`，产物不进 git）、每会话目录 200 文件 LRU 清理、标签截断以 warnings 回报模型。
+- **PNG 光栅内嵌（预览兼容）**：GUI 文件路由带 CSP `sandbox` 响应头，Chromium 拒绝光栅化此类 SVG `<img>`（"图片无法预览"）。因此每次出图在写 `.svg` 后光栅化同名 `.png`（2x 宽，sharp 走宿主 app 自带的 libvips），markdown 嵌 PNG，`.svg` 保留作矢量存档；光栅失败自动回退嵌 SVG 并以 warnings 告知。sharp 由 `node scripts/stage-sharp.mjs` 从宿主安装（asar wrapper + unpacked native/DLL）完整实装到插件 `node_modules/sharp` 与 `~/.dsh/cache`——**每次升级 DSH 应用或重装插件后必须重跑**：安装器的 prune 不认识未声明的实装目录，`pnpm install` 可能把它们整个剪掉（本机实测踩过：插件 package.json 里写 optionalDependencies 也救不了，宿主解析链不认）。若运行期两级解析全失败，工具会自动回退 SVG-only 并在插件目录留下 `raster-diagnostic.txt` 说明原因。
+- **卫生**：`.dsh-figures/.gitignore`（内容 `*`，产物不进 git）、每会话目录 200 文件 LRU 清理（PNG 随其 SVG 成对清理）、标签截断以 warnings 回报模型。
 
 ## 开发
 
@@ -57,7 +58,13 @@ const { svg, warnings } = drawFigure({ kind: 'compare', title: '…', rows: [ �
 2. `additionalProperties:false` 的对象会在**运行时**拒绝任何不在 `properties` 白名单里的键。`spec` 是异构的（raw_svg + 4 种 preset，各自带 layers/nodes/rows/steps/data 等嵌套），因此 `spec` 必须保持 **`additionalProperties: true`（开放）**——宿主只负责透传，真正的深校验在 execute 期的 `validateSpec()`/`drawFigure()`。把它改成 `false` 会让**每一次调用**都失败于 `"spec.kind" is not a declared property`。
 3. output 用的是另一套 "value schema" DSL：**只能逐属性写 `required: true`**，写顶层 `required:[...]` 数组会编译报错。
 
-回归防线：`scripts/_repro-activate.mjs` 在真实 cordis + ToolRuntime 下把五种 spec **逐一 execute 到产出 .svg**（不是只验证注册）。改完 index.js 后在安装目录跑它：`node _repro-activate.mjs`，见 `E2E: 5 pass` 才算数。
+回归防线：`scripts/_repro-png-check.mjs` 在真实 cordis + ToolRuntime 下把五种 spec **逐一 execute**，断言 markdown 嵌 PNG + 磁盘 PNG magic + SVG 孪生文件存在（不是只验证注册）。改完 index.js 后在两个安装目录各跑一遍：`node scripts/_repro-png-check.mjs`，各见 `E2E: 5 pass` 才算数。另两个冒烟脚本：`scripts/_validate-loader.mjs`（两级 sharp 加载各出真 PNG + 打印 bare import 的实际落点，证明为何用显式文件 URL）、`scripts/_validate-lite.cjs`（asar 读取器：listPackage/字段长度与实际载荷不一致，靠 NUL 与 `}` 定界后按字节校准 base）。
+
+加载器为何写显式 `.cjs` 文件 URL 而不是 bare `import('sharp')`：实测 bare 解析**随安装布局变化**——在插件安装目录内它落到本插件的 `dist/index.mjs`，但从工作区包目录跑则落到用户家目录 `~\node_modules\sharp\lib\index.js`（另一个更老的副本）。显式文件 URL 两个位置都确定命中同一个 staged 副本。
+
+## 图片预览失败的历史根因（勿回退）
+
+GUI markdown 的 `![]()` 经 `<img src>` 由 `api/file?path=…` 喂给浏览器；服务端（dsh-api-session-controller/media-references.js）对所有文件带 `Content-Security-Policy: sandbox` + `nosniff`（防同源开放 HTML/SVG XSS）。Chromium 对带 CSP sandbox 的 SVG 拒绝光栅化 → `<img>` onError → UI 显示"图片无法预览 · alt"。这不是 MIME 问题（`.svg→image/svg+xml` 本来正确），也**不是插件能改服务端头的事**——唯一干净解即上述 PNG 光栅内嵌（PNG 无文档语义，sandbox 头无害）。
 
 ## 已知局限
 
