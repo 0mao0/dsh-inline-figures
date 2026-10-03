@@ -37,6 +37,17 @@ import { writeFigure, pruneFigures, figureRelPath, figureDirName } from './lib/h
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url))
 const STAGED_SHARP = path.join(os.homedir(), '.dsh', 'cache', 'inline-figures', 'sharp-js', 'sharp', 'dist', 'index.cjs')
 const LOCAL_SHARP = path.join(PLUGIN_DIR, 'node_modules', 'sharp', 'dist', 'index.cjs')
+
+// The canvas the PNG is rasterized onto — the PNG only. A rasterizer has no
+// prefers-color-scheme, so the theme-adaptive stylesheet collapses to its light
+// values; without this the transparent canvas stayed dark on a dark GUI and
+// dark text landed on it. The archived .svg keeps its transparent canvas, so a
+// browser that renders it still follows the active theme.
+const PNG_BACKDROP = '<rect width="100%" height="100%" fill="#fbfbfa"/>'
+export function withBackdrop(svg) {
+  return svg.replace(/(<svg\b[^>]*>)/, `$1${PNG_BACKDROP}`)
+}
+
 let rasterPromise = null
 function loadRasterizer() {
   if (rasterPromise === null) {
@@ -180,7 +191,7 @@ export function apply(ctx, config) {
         try {
           const viewBox = /viewBox="0 0 (\d+(?:\.\d+)?)/.exec(rendered.svg)
           const baseWidth = viewBox ? Math.max(160, Math.min(1200, Number(viewBox[1]))) : 680
-          const png = await raster(Buffer.from(rendered.svg, 'utf8'))
+          const png = await raster(Buffer.from(withBackdrop(rendered.svg), 'utf8'))
             .resize({ width: baseWidth * 2 })
             .png()
             .toBuffer()
