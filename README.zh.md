@@ -1,6 +1,6 @@
 # dsh-inline-figures
 
-[![version](https://img.shields.io/badge/version-0.0.1-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.0.2-blue)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![ci](https://github.com/0mao0/dsh-inline-figures/actions/workflows/ci.yml/badge.svg)](https://github.com/0mao0/dsh-inline-figures/actions/workflows/ci.yml)
 
