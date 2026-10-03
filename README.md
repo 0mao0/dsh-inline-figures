@@ -26,11 +26,11 @@ Long model answers are walls of text. Two fixes are well known, and this plugin 
 DSH has its own plugin manager, so nothing is copied by hand and no package-manager command runs against your profile.
 
 ```powershell
-# from npm
-dsh plugin --profile <profile> add dsh-inline-figures
-
-# or straight from this repository, no registry involved
+# from this repository (works today, no registry involved)
 dsh plugin --profile <profile> add github:0mao0/dsh-inline-figures
+
+# from npm, once the package is published there
+dsh plugin --profile <profile> add dsh-inline-figures
 ```
 
 The Web sidebar's **Plugins** page does the same thing with a form, and an agent can do it with the `plugin_manager` tool (`install_bundle`, target = the directory of a local clone).

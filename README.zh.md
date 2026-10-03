@@ -26,11 +26,11 @@
 DSH 自带插件管理器。你不需要手工拷文件，也不需要在 profile 里跑包管理器。
 
 ```powershell
-# 从 npm 安装
-dsh plugin --profile <profile> add dsh-inline-figures
-
-# 或者直接从本仓库安装，不经过 registry
+# 从本仓库安装（现在就能用，不经过 registry）
 dsh plugin --profile <profile> add github:0mao0/dsh-inline-figures
+
+# 从 npm 安装（包发布到 npm 之后可用）
+dsh plugin --profile <profile> add dsh-inline-figures
 ```
 
 Web 侧边栏的 **Plugins** 页有同样的表单入口；也可以让 agent 用 `plugin_manager` 工具装（`install_bundle`，target 指向本地克隆目录）。
