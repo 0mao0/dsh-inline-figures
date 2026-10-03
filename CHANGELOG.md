@@ -9,13 +9,25 @@ Add entries under `## [Unreleased]` as you work. `node scripts/release.mjs` roll
 
 ## [Unreleased]
 
+### Added
+
+- A "How it works" diagram in the README, one render per language, generated from a single layout by `scripts/make-readme-diagram.mjs`.
+
 ### Changed
 
 - README head is a machine-readable `name` / `description` table, so a reader — human or model — can tell what the plugin is before reading any prose.
-- README gained a "How it works" diagram, one render per language, and an explicit "What it writes to disk" section: the session workspace only, no network calls, no uploads, no telemetry, 200 figures per session, and the note that a figure is a reference rather than a copy.
-- README dropped its Releasing and Known issues sections. Release steps now live in `docs/MAINTAINER-NOTES.md`, together with the two open defects that were already tracked there.
+- README install order: the repository spec comes first, because the package is not on npm yet.
+- README "What it writes to disk" spells out the persistence: the session workspace only, no network calls, no uploads, no telemetry, 200 figures per session, and a figure is a reference rather than a copy.
+- README dropped its Releasing and Known issues sections. Release steps now live in `docs/MAINTAINER-NOTES.md`, together with the open defects.
+- Line endings are LF everywhere, matching the `.gitattributes` the repository declares.
 
-## [0.0.1] - 2026-10-04
+### Fixed
+
+- **Figures are readable in a dark GUI.** A rasterizer has no `prefers-color-scheme`, so the PNG kept the stylesheet's light values on a transparent canvas and left titles, axis labels and timeline labels dark-on-dark. The PNG now gets an opaque canvas; the archived `.svg` stays transparent and theme-adaptive.
+- **Concurrent draws no longer collide.** Three or more same-slug `draw_figure` calls in one step could fail to allocate a file name. A retry now re-reads the directory instead of incrementing a number that was read before the first write.
+- The CHANGELOG carried two `## [Unreleased]` headings, which made `scripts/release.mjs` read an empty section and refuse to release.
+
+## [0.0.1] - 2026-10-03
 
 First public release.
 

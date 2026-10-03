@@ -13,6 +13,11 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as dshTools from '@deepseek-ai/dsh-tools'
 import * as pluginNs from '../index.js'
 
+// The PNG must be fully opaque: a transparent canvas leaves light-mode text
+// dark-on-dark in a dark GUI (the rasterizer ignores prefers-color-scheme).
+const { loadSharp } = await import('./readme-assets.mjs')
+const { sharp } = await loadSharp()
+
 const ToolRuntime = dshTools.ToolRuntime ?? dshTools.default
 const root = new Context()
 
@@ -53,8 +58,16 @@ for (const [name, spec] of Object.entries(cases)) {
     const onDisk = ok && fs.existsSync(path.join(cwd, res.path))
     const magic = onDisk && fs.readFileSync(path.join(cwd, res.path)).subarray(0, 4).toString('hex') === '89504e47'
     const svgTwin = onDisk && fs.existsSync(path.join(cwd, res.path.replace(/\.png$/, '.svg')))
-    const okAll = ok && onDisk && magic && svgTwin
-    console.log(`${okAll ? 'PASS' : 'FAIL'} execute:${name} -> ${res?.path}  (png:${!!magic} svgTwin:${!!svgTwin} warnings:${res?.warnings?.length ?? '?'})`)
+    // Fully opaque: the PNG must not depend on the page background.
+    let opaque = false
+    if (onDisk && magic && sharp) {
+      const { data, info } = await sharp(fs.readFileSync(path.join(cwd, res.path))).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+      let clear = 0
+      for (let i = 3; i < data.length; i += info.channels) if (data[i] < 255) clear += 1
+      opaque = clear === 0
+    }
+    const okAll = ok && onDisk && magic && svgTwin && opaque
+    console.log(`${okAll ? 'PASS' : 'FAIL'} execute:${name} -> ${res?.path}  (png:${!!magic} svgTwin:${!!svgTwin} opaque:${opaque} warnings:${res?.warnings?.length ?? '?'})`)
     okAll ? pass++ : fail++
   } catch (e) {
     console.log(`FAIL execute:${name} -> ${e?.message ?? e}`)

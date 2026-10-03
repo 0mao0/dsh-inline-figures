@@ -73,3 +73,23 @@ test('writeFigure collides safely when file exists', async () => {
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+// The model can emit several draw_figure calls in ONE step, and they all share
+// the default slug (spec.kind). Every writer must still get a file: a retry that
+// only incremented a number read before the first write lost this race.
+test('writeFigure survives concurrent same-slug writes', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-fig-'))
+  try {
+    const writers = 8
+    const results = await Promise.allSettled(Array.from({ length: writers }, () => writeFigure(dir, '<svg/>', 'architecture')))
+    const failed = results.filter((r) => r.status === 'rejected')
+    assert.equal(failed.length, 0, `rejected: ${failed.map((r) => r.reason?.message).join('; ')}`)
+    const names = (await fsp.readdir(dir)).filter((f) => /\.svg$/.test(f))
+    assert.equal(names.length, writers, `expected ${writers} files, got ${names.join(', ')}`)
+    assert.equal(new Set(names).size, writers, 'file names must be unique')
+    // No index is reused or skipped in a way that loses a figure.
+    assert.deepEqual(names.map((n) => Number(n.split('-')[0])).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

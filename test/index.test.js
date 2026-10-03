@@ -142,6 +142,18 @@ test('rasterizes to PNG with graceful SVG fallback (option A)', () => {
   assert.match(src, /markdown: `!\[\$\{args\.alt\}\]\(\$\{embedRel\}\)`/)
 })
 
+test('the rasterized PNG gets an opaque canvas, the SVG archive does not', () => {
+  // A rasterizer has no prefers-color-scheme: without a backdrop the PNG is
+  // transparent, and its light-mode text lands dark-on-dark in a dark GUI.
+  assert.match(src, /const PNG_BACKDROP = '<rect width="100%" height="100%" fill="#/)
+  assert.match(src, /export function withBackdrop\(svg\)/)
+  assert.match(src, /raster\(Buffer\.from\(withBackdrop\(rendered\.svg\), 'utf8'\)\)/, 'the rasterizer must receive the backdrop version')
+  // The written .svg must stay the transparent one, or the archive loses its
+  // theme adaptivity for the browser that renders it.
+  assert.match(src, /writeFigure\(dir, rendered\.svg, args\.slug/, 'the archived svg must not carry the backdrop')
+  assert.ok(!/writeFigure\(dir, withBackdrop/.test(src), 'do not bake the backdrop into the archive')
+})
+
 test('delegates to portable modules only (no inline layout logic)', () => {
   for (const importee of ['./lib/engine.js', './lib/host-utils.js']) assert.ok(src.includes(importee), importee)
   assert.ok(!src.includes('function architecture('))
