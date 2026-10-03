@@ -1,0 +1,4 @@
+node_modules/
+.dsh-tree/
+raster-diagnostic.txt
+*.log

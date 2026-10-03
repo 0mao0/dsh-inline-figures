@@ -1,0 +1,144 @@
+# dsh-inline-figures
+
+[![version](https://img.shields.io/badge/version-0.0.1-blue)](CHANGELOG.md)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![ci](https://github.com/0mao0/dsh-inline-figures/actions/workflows/ci.yml/badge.svg)](https://github.com/0mao0/dsh-inline-figures/actions/workflows/ci.yml)
+
+[English](README.md) | **中文**
+
+**描述。** 一个 **DeepSeek Harness（DSH）宿主插件**：让模型把**干净的矢量图穿插在回复的段落之间**。模型调一次 `draw_figure`，把 JSON 图型规格或手写 SVG 变成一张满宽图文件，并拿回一行 Markdown；把它贴在图该出现的位置即可。文字、图、文字——回答结束后不会折叠进工具卡。
+
+**关键词。** DeepSeek Harness 插件 · DSH 宿主插件 · Cordis bundle · `draw_figure` · 正文内联图 · 文字-图-文字回答 · 聊天里的矢量图 · ASD-STE100 图内标签 · 模型输出可读性
+
+![同一个回答：左边是不装插件，右边是装了插件](docs/assets/before-after.zh.png)
+
+*同样的事实，同样的回答。左：纯 Markdown。右：模型把结构画了出来，并删掉了它替换掉的那段话。*
+
+## 为什么做这个
+
+模型的回答常常是一堵文字墙。有两个公认的解法，这个插件两个都做：
+
+- **写得更朴素。** 注入的引导语要求解释性文字按约 80% 的 **ASD-STE100** 来写——即航空维修手册使用的受控英语。Andrej Karpathy [推荐用 ASD-STE100](https://www.searchenginejournal.com/karpathy-llm-aircraft-manual-writing/591813/) 解决这个问题，并把[图排在文字之上](https://www.explainx.ai/blog/karpathy-understand-llm-outputs-ste100-diagrams-html-video-2026)，作为理解模型输出的下一步。这里的图内标签是同一风格里更严的一档：名词短语、最多六个词、一个标签一个概念。
+- **把结构画出来。** 凡是有部件、流程、顺序、对比、计数的内容，就画成图而不写成段落，放在它该说明的位置。
+
+## 安装
+
+DSH 自带插件管理器。你不需要手工拷文件，也不需要在 profile 里跑包管理器。
+
+```powershell
+# 从 npm 安装
+dsh plugin --profile <profile> add dsh-inline-figures
+
+# 或者直接从本仓库安装，不经过 registry
+dsh plugin --profile <profile> add github:0mao0/dsh-inline-figures
+```
+
+Web 侧边栏的 **Plugins** 页有同样的表单入口；也可以让 agent 用 `plugin_manager` 工具装（`install_bundle`，target 指向本地克隆目录）。
+
+装完**重启 DSH**。宿主侧的插件代码每个进程只加载一次，所以要重启才会载入新的模块代；在那之前插件列表可能还显示旧状态。
+
+没有构建步骤。本插件 import 的包由宿主提供；负责让图能预览的 `sharp` 自带预编译二进制。
+
+### 装之前宿主会检查什么
+
+`package.json` 用 **peerDependencies** 钉住了这一版验证过的 DSH 运行版本（`@deepseek-ai/dsh-*`）。插件管理器先评估这些 peer：运行版本不匹配就直接拒绝安装并报 `incompatible-version`——干净地拒绝，而不是装上去再出问题。确实想在别的运行版本上跑，就授一条精确版本豁免：
+
+```powershell
+dsh plugin --profile <profile> allow-version dsh-inline-figures@0.0.1 --dsh-version <runtime> --accept-risk
+```
+
+已验证版本：**dsh 0.2.0-rc.2**（cordis 4.0.4）。如果机器完全连不上 registry，[docs/MAINTAINER-NOTES.md](docs/MAINTAINER-NOTES.md) 保留了一套离线安装器，属于不受支持的兜底方案。
+
+## `draw_figure` 工具
+
+```
+draw_figure({ spec, alt, slug? }) -> { path, markdown, warnings }
+```
+
+预设图型由引擎排好版——这类图永远不要手写坐标：
+
+```json
+{ "kind": "compare", "title": "现状 vs 目标",
+  "rows": [{ "left": { "label": "人工复核" },
+             "right": { "label": "自动门禁", "tone": "ok" } }] }
+```
+
+返回的这一行，原样贴进正文：
+
+```
+![现状 vs 目标](.dsh-figures/s3f2a9c1e-6f7d-4/1-compare.png)
+```
+
+| `kind` | 形状 | 上限 |
+|---|---|---|
+| `raw_svg` | 手写 SVG：树、分支流水线、状态机、任何自定义结构 | 规格 32 KB |
+| `architecture` | 分层方框、P0/P1 徽章、danger 分组、反馈边 | 2–6 层 × 每层 1–6 节点、8 条边 |
+| `compare` | 左右对照列，带语义色（`default`/`danger`/`ok`/`muted`） | 1–6 行 |
+| `timeline` | 纵向步骤，标 `done`/`active`/`todo` | 2–10 步 |
+| `chart` | `bar`、`line` 或 `pie`，带轴刻度与标签自动旋转 | 1–12 个数据点 |
+
+规格在排版前先校验，每条错误都点名出错的字段。所以坏调用回来的是可修的提示，而不是一张坏图。图永远是 SVG——绝不用 ASCII 字符画、Unicode 制表符或代码块。
+
+`raw_svg` 是自由结构的首选路径。消毒器拒绝 script、doctype、实体与 iframe，剥掉事件属性、外部引用、`<image>` 与 `<foreignObject>`，然后注入主题样式表和箭头 marker；手写的图因此照样跟随当前配色。
+
+## 它写哪些文件
+
+```
+<会话工作区>/.dsh-figures/<会话>/<n>-<slug>.svg   矢量原件
+                                 <n>-<slug>.png   位图孪生，正文里嵌的是它
+```
+
+会话目录里会写入一个内容为 `*` 的 `.gitignore`，所以 `git status` 保持干净。每个目录只保留最新 200 张图；被清掉的 SVG 会连同它的 PNG 孪生一起删除。栅格化失败时，正文改嵌 SVG，并在 `warnings` 里告诉模型原因——出图永远不会让回答失败。
+
+## 不装 DSH 也能用这个引擎
+
+`lib/` 不 import 任何 `@deepseek-ai/*` 或 cordis，并有测试强制这一点。`./engine` 入口就是一个普通模块：
+
+```js
+// 从仓库克隆：import { ... } from './lib/engine.js'
+// 从安装的包：import { ... } from 'dsh-inline-figures/engine'
+import { drawFigure, validateSpec, sanitizeSvg, GUIDANCE_TEXT } from './lib/engine.js'
+
+const { svg, warnings } = drawFigure({
+  kind: 'timeline', title: '上线计划',
+  steps: [{ label: '设计', state: 'done' }, { label: '开发', state: 'active' }],
+})
+```
+
+要在自己的 agent 里复用它：用同样的 schema 注册一个等价工具，把 `GUIDANCE_TEXT` 贴进系统提示，然后把返回的 SVG（或你自己栅格化的结果）交给你的 Markdown 图片通道。
+
+## 开发
+
+```powershell
+node --test                                            # 全量测试，零依赖
+$env:UPDATE_GOLDEN='1'; node --test test/architecture.test.js   # 重新生成布局快照，然后目检 diff
+node scripts/make-readme-image.mjs                     # 重新生成 README 主图
+node scripts/_repro-png-check.mjs                      # 真实 cordis：挂载插件、跑完五种图型、并验证卸载清理
+node scripts/_repro-nudge.mjs                          # 真实 cordis：驱动 nudge 事件
+```
+
+`test/compliance.test.js` 是官方宿主契约的门禁，规则见上面[「装之前宿主会检查什么」](#装之前宿主会检查什么)：宿主包必须是 peer、兼容门禁必须武装、patch 行名必须等于包名、身份必须可发布、展示元数据必须齐全、每个资源都必须走 `ctx.effect` 注册。
+
+在受限沙箱的 shell 里，`node --test` 可能因 `spawn EPERM` 失败（它为每个测试文件 spawn 一个子进程）。`node --test --test-isolation=none` 在单进程里跑同一套测试。
+
+## 发版
+
+目前只走补丁位：0.0.1 -> 0.0.2 -> 0.0.3。
+
+```powershell
+# 先在 CHANGELOG.md 的 "## [Unreleased]" 下写变更，然后：
+node scripts/release.mjs              # 升版本、定版 changelog、同步两份 README 的徽章、跑测试、commit、打 tag
+node scripts/release.mjs --dry-run    # 只打印计划，不改任何文件
+node scripts/release.mjs --push       # 连 commit 和 tag 一起推
+```
+
+推送 `v*` 标签后，发布工作流会校验标签与 `package.json` 一致、跑测试，并用 changelog 里该版本的段落发布 GitHub Release。`node scripts/release.mjs --notes 0.0.1` 只打印某一段，供别处使用。
+
+## 已知问题
+
+- **暗色界面下图偏亮。** PNG 栅格路径把样式表里的浅色值固化了，所以落在透明画布上的文字（标题、轴标签、时间线标签）在深色背景上不好读。方框内部的文字不受影响。计划修复：栅格前加一层不透明底。
+- **并发出图会撞名。** 同一步里发三个以上同 slug 的 `draw_figure`，可能分配不到文件名。计划修复：增加写盘重试次数。
+
+## 许可证
+
+[MIT](LICENSE)
