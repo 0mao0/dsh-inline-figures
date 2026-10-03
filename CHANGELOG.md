@@ -9,6 +9,8 @@ Add entries under `## [Unreleased]` as you work. `node scripts/release.mjs` roll
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-10-03
+
 ### Added
 
 - A "How it works" diagram in the README, one render per language, generated from a single layout by `scripts/make-readme-diagram.mjs`.
