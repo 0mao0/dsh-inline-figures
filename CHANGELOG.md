@@ -9,6 +9,14 @@ Add entries under `## [Unreleased]` as you work. `node scripts/release.mjs` roll
 
 ## [Unreleased]
 
+## [Unreleased]
+
+### Changed
+
+- README head is a machine-readable `name` / `description` table, so a reader — human or model — can tell what the plugin is before reading any prose.
+- README gained a "How it works" diagram, one render per language, and an explicit "What it writes to disk" section: the session workspace only, no network calls, no uploads, no telemetry, 200 figures per session, and the note that a figure is a reference rather than a copy.
+- README dropped its Releasing and Known issues sections. Release steps now live in `docs/MAINTAINER-NOTES.md`, together with the two open defects that were already tracked there.
+
 ## [0.0.1] - 2026-10-04
 
 First public release.

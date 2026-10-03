@@ -6,7 +6,9 @@
 
 **English** | [中文](README.zh.md)
 
-**Description.** A **DeepSeek Harness (DSH) host plugin** that makes the model draw **clean vector figures inline between the paragraphs of its reply**. One `draw_figure` tool call turns a JSON figure spec or a hand-authored SVG into a full-width figure file and returns a single Markdown line; the model pastes that line where the figure belongs. Text, figure, text — and nothing collapses into a tool card when the turn ends.
+| name | dsh-inline-figures |
+|---|---|
+| description | Use dsh-inline-figures when a DeepSeek Harness (DSH) answer has to be understood rather than skimmed. It gives the model a `draw_figure` tool that renders clean vector figures inline between the paragraphs of its reply - text, figure, text - so parts and relations, flows, sequences, comparisons and counts become a picture instead of a wall of text. Figures are deterministic SVG written into the session workspace and embedded through the ordinary Markdown image channel: nothing collapses into a tool card, and no client code or new UI is involved. |
 
 **Keywords.** DeepSeek Harness plugin · DSH host plugin · Cordis bundle · `draw_figure` · inline SVG figures · text–figure–text answers · vector diagrams in AI chat · ASD-STE100 figure labels · LLM output readability
 
@@ -20,6 +22,12 @@ Long model answers are walls of text. Two fixes are well known, and this plugin 
 
 - **Write plainer.** The injected guidance asks for prose at roughly 80% **ASD-STE100** — Simplified Technical English, the controlled language of aircraft maintenance manuals. Andrej Karpathy [recommended ASD-STE100](https://www.searchenginejournal.com/karpathy-llm-aircraft-manual-writing/591813/) for exactly this problem, and [ranked diagrams above prose](https://www.explainx.ai/blog/karpathy-understand-llm-outputs-ste100-diagrams-html-video-2026) as the next step for understanding a model's output. Figure labels here are the strictest tier of the same style: noun phrases, six words at most, one concept per label.
 - **Draw the structure.** Anything with parts, flow, sequence, comparison, or counts becomes a figure instead of a paragraph, placed at the point it illuminates.
+
+## How it works
+
+![How the plugin works: the model calls draw_figure, the host plugin validates, renders, writes and returns a Markdown line, and the reply renders it inline](docs/assets/how-it-works.png)
+
+One turn, three moves. The model decides that a point needs a figure and calls `draw_figure`; the host plugin validates the spec, renders it, writes the file, and returns one Markdown line; the model pastes that line into the reply, where the ordinary Markdown image renders it full width. There is no new UI and no client code — the figure travels the same image channel as any other picture in a message.
 
 ## Install
 
@@ -81,14 +89,23 @@ Specs are validated before layout and every error names its field, so a bad call
 
 `raw_svg` is the primary path for free-form structure. The sanitizer rejects scripts, doctypes, entities and iframes, strips event attributes, external references, `<image>` and `<foreignObject>`, then injects a theme stylesheet and an arrow marker, so a hand-authored figure still follows the active colour scheme.
 
-## Files it writes
+## What it writes to disk
+
+Only the session workspace, and nothing leaves the machine.
 
 ```
-<session workspace>/.dsh-figures/<session>/<n>-<slug>.svg   vector original
-                                          <n>-<slug>.png   raster twin, embedded in the reply
+<session workspace>/.dsh-figures/<session>/
+├── N-slug.svg     vector original
+├── N-slug.png     the raster the reply embeds
+└── .gitignore     holds *, so git status stays clean
 ```
 
-A `.gitignore` holding `*` goes in the session directory, so `git status` stays clean. Each directory keeps its newest 200 figures; a pruned SVG takes its PNG twin with it. If rasterization fails, the reply embeds the SVG and the model is told why in `warnings` — a figure never fails the answer.
+- **No network calls, no uploads, no telemetry.** Rendering happens locally; the only traffic in a turn is the model call itself.
+- **Per session.** A figure lands in the directory of the session that drew it. Each directory keeps its newest 200; older ones are pruned by modification time, and a pruned SVG takes its PNG twin with it.
+- **A figure is a reference, not a copy.** Delete the files and old replies show a broken image, so treat the directory as part of the conversation, not as scratch space.
+- **If rasterization fails**, the reply embeds the SVG instead, and the plugin writes `raster-diagnostic.txt` beside itself so the failure is visible to you and not only to the model.
+
+Nothing else is written per answer. Two install-time artefacts can exist elsewhere: the offline fallback's staging copy under `~/.dsh/vendor`, and `sharp` in the profile's `node_modules`.
 
 ## Use the engine without DSH
 
@@ -112,7 +129,8 @@ To reuse it in your own agent: register an equivalent tool with the same schema,
 ```powershell
 node --test                                            # full suite, no dependencies
 $env:UPDATE_GOLDEN='1'; node --test test/architecture.test.js   # refresh layout snapshots, then eyeball the diff
-node scripts/make-readme-image.mjs                     # rebuild the README image
+node scripts/make-readme-image.mjs                     # rebuild the before/after images
+node scripts/make-readme-diagram.mjs                   # rebuild the how-it-works diagrams
 node scripts/_repro-png-check.mjs                      # real cordis: mounts the plugin, executes all five kinds, proves unload cleanup
 node scripts/_repro-nudge.mjs                          # real cordis: drives the nudge events
 ```
@@ -121,23 +139,7 @@ node scripts/_repro-nudge.mjs                          # real cordis: drives the
 
 Under a sandboxed shell, `node --test` can fail with `spawn EPERM` (it spawns one child per test file). `node --test --test-isolation=none` runs the same suite in one process.
 
-## Releasing
-
-Patch-only for now: 0.0.1 -> 0.0.2 -> 0.0.3.
-
-```powershell
-# add notes under "## [Unreleased]" in CHANGELOG.md, then:
-node scripts/release.mjs              # bump, roll the changelog, sync both README badges, test, commit, tag
-node scripts/release.mjs --dry-run    # print the plan, change nothing
-node scripts/release.mjs --push       # also push the commit and tag
-```
-
-Pushing a `v*` tag makes the release workflow verify that the tag matches `package.json`, run the tests, and publish the GitHub Release from the changelog section. `node scripts/release.mjs --notes 0.0.1` prints one section, for notes elsewhere.
-
-## Known issues
-
-- **Figures render light in a dark GUI.** The PNG raster path freezes the stylesheet's light values, so text that sits on the transparent canvas (titles, axis labels, timeline labels) is hard to read on a dark background. Box interiors stay readable. Fix planned: an opaque figure background before rasterizing.
-- **Concurrent draws can collide.** Three or more `draw_figure` calls in one step with the same slug can fail to allocate a file name. Fix planned: more write retries.
+Release steps, open defects, and the offline-install fallback live in [docs/MAINTAINER-NOTES.md](docs/MAINTAINER-NOTES.md).
 
 ## License
 

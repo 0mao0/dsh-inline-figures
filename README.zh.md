@@ -6,7 +6,9 @@
 
 [English](README.md) | **中文**
 
-**描述。** 一个 **DeepSeek Harness（DSH）宿主插件**：让模型把**干净的矢量图穿插在回复的段落之间**。模型调一次 `draw_figure`，把 JSON 图型规格或手写 SVG 变成一张满宽图文件，并拿回一行 Markdown；把它贴在图该出现的位置即可。文字、图、文字——回答结束后不会折叠进工具卡。
+| name | dsh-inline-figures |
+|---|---|
+| description | 当你需要"看懂"而不是"扫过"一段 DeepSeek Harness（DSH）回答时用它。它给模型一个 `draw_figure` 工具，把干净的矢量图渲染在回复的段落之间——文字、图、文字——于是部件与关系、流程、顺序、对比、计数变成一张图，而不是一堵文字墙。图是确定性生成的 SVG，落在会话工作区，走普通 Markdown 图片通道嵌入：不会折叠进工具卡，也不需要客户端代码或新界面。 |
 
 **关键词。** DeepSeek Harness 插件 · DSH 宿主插件 · Cordis bundle · `draw_figure` · 正文内联图 · 文字-图-文字回答 · 聊天里的矢量图 · ASD-STE100 图内标签 · 模型输出可读性
 
@@ -20,6 +22,12 @@
 
 - **写得更朴素。** 注入的引导语要求解释性文字按约 80% 的 **ASD-STE100** 来写——即航空维修手册使用的受控英语。Andrej Karpathy [推荐用 ASD-STE100](https://www.searchenginejournal.com/karpathy-llm-aircraft-manual-writing/591813/) 解决这个问题，并把[图排在文字之上](https://www.explainx.ai/blog/karpathy-understand-llm-outputs-ste100-diagrams-html-video-2026)，作为理解模型输出的下一步。这里的图内标签是同一风格里更严的一档：名词短语、最多六个词、一个标签一个概念。
 - **把结构画出来。** 凡是有部件、流程、顺序、对比、计数的内容，就画成图而不写成段落，放在它该说明的位置。
+
+## 它怎么工作
+
+![插件工作原理：模型调用 draw_figure，宿主插件校验、渲染、写盘并回一行 Markdown，正文把它渲染成图](docs/assets/how-it-works.zh.png)
+
+一个回合三步。模型判定某处该有图，调用 `draw_figure`；宿主插件校验规格、渲染、写文件，回一行 Markdown；模型把这一行贴进正文，普通的 Markdown 图片把它渲染成满宽图。没有新界面，也没有客户端代码——图走的是消息里任何一张图片都走的同一条通道。
 
 ## 安装
 
@@ -81,14 +89,23 @@ draw_figure({ spec, alt, slug? }) -> { path, markdown, warnings }
 
 `raw_svg` 是自由结构的首选路径。消毒器拒绝 script、doctype、实体与 iframe，剥掉事件属性、外部引用、`<image>` 与 `<foreignObject>`，然后注入主题样式表和箭头 marker；手写的图因此照样跟随当前配色。
 
-## 它写哪些文件
+## 它往磁盘写什么
+
+只写会话工作区，别处不落，也不离开这台机器。
 
 ```
-<会话工作区>/.dsh-figures/<会话>/<n>-<slug>.svg   矢量原件
-                                 <n>-<slug>.png   位图孪生，正文里嵌的是它
+<会话工作区>/.dsh-figures/<会话>/
+├── N-slug.svg     矢量原件
+├── N-slug.png     正文里嵌的位图
+└── .gitignore     内容 * ，所以 git status 保持干净
 ```
 
-会话目录里会写入一个内容为 `*` 的 `.gitignore`，所以 `git status` 保持干净。每个目录只保留最新 200 张图；被清掉的 SVG 会连同它的 PNG 孪生一起删除。栅格化失败时，正文改嵌 SVG，并在 `warnings` 里告诉模型原因——出图永远不会让回答失败。
+- **不联网、不上传、无遥测。** 渲染全在本地；一个回合里唯一的网络流量就是模型调用本身。
+- **按会话分目录。** 图落在画它的那个会话目录里。每个目录只保留最新 200 张，超出按修改时间清理，被清掉的 SVG 连同它的 PNG 孪生一起删除。
+- **图是引用，不是副本。** 删掉文件，旧回答里的图就变成破图——把这个目录当成对话的一部分，而不是可随手清理的临时文件。
+- **栅格化失败时**，正文改嵌 SVG，插件还会在自己旁边写一个 `raster-diagnostic.txt`，让失败对你可见，而不是只告诉模型。
+
+每次出图不会在别处留下东西。只有两处安装期产物可能在会话工作区之外：离线兜底安装器在 `~/.dsh/vendor` 下的暂存副本，以及 profile `node_modules` 里的 `sharp`。
 
 ## 不装 DSH 也能用这个引擎
 
@@ -112,7 +129,8 @@ const { svg, warnings } = drawFigure({
 ```powershell
 node --test                                            # 全量测试，零依赖
 $env:UPDATE_GOLDEN='1'; node --test test/architecture.test.js   # 重新生成布局快照，然后目检 diff
-node scripts/make-readme-image.mjs                     # 重新生成 README 主图
+node scripts/make-readme-image.mjs                     # 重新生成 before/after 对比图
+node scripts/make-readme-diagram.mjs                   # 重新生成原理图
 node scripts/_repro-png-check.mjs                      # 真实 cordis：挂载插件、跑完五种图型、并验证卸载清理
 node scripts/_repro-nudge.mjs                          # 真实 cordis：驱动 nudge 事件
 ```
@@ -121,23 +139,7 @@ node scripts/_repro-nudge.mjs                          # 真实 cordis：驱动 
 
 在受限沙箱的 shell 里，`node --test` 可能因 `spawn EPERM` 失败（它为每个测试文件 spawn 一个子进程）。`node --test --test-isolation=none` 在单进程里跑同一套测试。
 
-## 发版
-
-目前只走补丁位：0.0.1 -> 0.0.2 -> 0.0.3。
-
-```powershell
-# 先在 CHANGELOG.md 的 "## [Unreleased]" 下写变更，然后：
-node scripts/release.mjs              # 升版本、定版 changelog、同步两份 README 的徽章、跑测试、commit、打 tag
-node scripts/release.mjs --dry-run    # 只打印计划，不改任何文件
-node scripts/release.mjs --push       # 连 commit 和 tag 一起推
-```
-
-推送 `v*` 标签后，发布工作流会校验标签与 `package.json` 一致、跑测试，并用 changelog 里该版本的段落发布 GitHub Release。`node scripts/release.mjs --notes 0.0.1` 只打印某一段，供别处使用。
-
-## 已知问题
-
-- **暗色界面下图偏亮。** PNG 栅格路径把样式表里的浅色值固化了，所以落在透明画布上的文字（标题、轴标签、时间线标签）在深色背景上不好读。方框内部的文字不受影响。计划修复：栅格前加一层不透明底。
-- **并发出图会撞名。** 同一步里发三个以上同 slug 的 `draw_figure`，可能分配不到文件名。计划修复：增加写盘重试次数。
+发版步骤、未修问题、离线安装兜底都写在 [docs/MAINTAINER-NOTES.md](docs/MAINTAINER-NOTES.md)。
 
 ## 许可证
 

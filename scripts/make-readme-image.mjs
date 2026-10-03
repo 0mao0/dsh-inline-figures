@@ -12,14 +12,13 @@
 // without it the script still writes the .svg files and says why the .png files
 // are missing.
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { wrapText, esc } from '../lib/primitives.js'
+import { loadSharp, emit } from './readme-assets.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const pkgRoot = path.dirname(here)
-const outDir = path.join(pkgRoot, 'docs', 'assets')
+const outDir = path.join(path.dirname(here), 'docs', 'assets')
 
 const W = 1200            // logical width; the raster is 2x, so GitHub shows it near 1:1 at ~880px
 const M = 28              // page margin
@@ -199,35 +198,10 @@ function build(L) {
   }
 }
 
-// Rasterize with sharp: the package dependency, or the offline staging copy.
-const candidates = [
-  path.join(pkgRoot, 'node_modules', 'sharp', 'dist', 'index.cjs'),
-  path.join(os.homedir(), '.dsh', 'cache', 'inline-figures', 'sharp-js', 'sharp', 'dist', 'index.cjs'),
-]
-let sharp = null
-const why = []
-for (const entry of candidates) {
-  try {
-    const mod = await import(pathToFileURL(entry).href)
-    sharp = mod.default ?? mod
-    if (typeof sharp === 'function') break
-    sharp = null
-    why.push(`${entry}: unexpected export shape`)
-  } catch (error) {
-    why.push(`${entry}: ${String(error?.message ?? error).split('\n')[0].slice(0, 90)}`)
-  }
-}
-
-fs.mkdirSync(outDir, { recursive: true })
+const { sharp, why } = await loadSharp()
 for (const [code, L] of Object.entries(LOCALES)) {
   const { svg, width, height } = build(L)
-  fs.writeFileSync(path.join(outDir, `${L.out}.svg`), svg)
-  let note = 'svg only'
-  if (sharp) {
-    const png = await sharp(Buffer.from(svg)).png().toBuffer()
-    fs.writeFileSync(path.join(outDir, `${L.out}.png`), png)
-    note = `${png.length} bytes, magic ${png.subarray(0, 4).toString('hex')}`
-  }
-  console.log(`${code}: docs/assets/${L.out}.svg + .png  (${width}x${height} logical, ${width * 2}x${height * 2} raster)  ${note}`)
+  const note = await emit(L.out, svg, sharp)
+  console.log(`${code}:  ${note}  (${width}x${height} logical, ${width * 2}x${height * 2} raster)`)
 }
 if (!sharp) console.error(`sharp unavailable, .png files not written:\n  ${why.join('\n  ')}`)
