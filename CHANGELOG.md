@@ -9,6 +9,18 @@ Add entries under `## [Unreleased]` as you work. `node scripts/release.mjs` roll
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-10-03
+
+### Added
+
+- Published to npm: `npm i dsh-inline-figures`, or `dsh plugin --profile <profile> add dsh-inline-figures`.
+
+### Changed
+
+- The Chinese README is `README-zh.md` (was `README.zh.md`). npm picks the README for a package page by globbing `{README,README.*}` in the package root and taking the first match, in directory order — with two matches the Chinese file won, so the package page showed Chinese for an English-default project. A hyphen keeps it out of that glob, which makes the English README the only candidate.
+- README install order is npm first again, now that the package is on npm.
+- The `allow-version` example no longer pins a stale version; it takes `<version>`.
+
 ## [0.0.2] - 2026-10-03
 
 ### Added

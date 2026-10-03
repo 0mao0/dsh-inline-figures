@@ -1,6 +1,6 @@
 # dsh-inline-figures
 
-[![version](https://img.shields.io/badge/version-0.0.2-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.0.3-blue)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![ci](https://github.com/0mao0/dsh-inline-figures/actions/workflows/ci.yml/badge.svg)](https://github.com/0mao0/dsh-inline-figures/actions/workflows/ci.yml)
 
@@ -34,11 +34,11 @@
 DSH 自带插件管理器。你不需要手工拷文件，也不需要在 profile 里跑包管理器。
 
 ```powershell
-# 从本仓库安装（现在就能用，不经过 registry）
-dsh plugin --profile <profile> add github:0mao0/dsh-inline-figures
-
-# 从 npm 安装（包发布到 npm 之后可用）
+# 从 npm 安装
 dsh plugin --profile <profile> add dsh-inline-figures
+
+# 或直接从本仓库安装，不经过 registry
+dsh plugin --profile <profile> add github:0mao0/dsh-inline-figures
 ```
 
 Web 侧边栏的 **Plugins** 页有同样的表单入口；也可以让 agent 用 `plugin_manager` 工具装（`install_bundle`，target 指向本地克隆目录）。
@@ -52,7 +52,7 @@ Web 侧边栏的 **Plugins** 页有同样的表单入口；也可以让 agent �
 `package.json` 用 **peerDependencies** 钉住了这一版验证过的 DSH 运行版本（`@deepseek-ai/dsh-*`）。插件管理器先评估这些 peer：运行版本不匹配就直接拒绝安装并报 `incompatible-version`——干净地拒绝，而不是装上去再出问题。确实想在别的运行版本上跑，就授一条精确版本豁免：
 
 ```powershell
-dsh plugin --profile <profile> allow-version dsh-inline-figures@0.0.1 --dsh-version <runtime> --accept-risk
+dsh plugin --profile <profile> allow-version dsh-inline-figures@<version> --dsh-version <runtime> --accept-risk
 ```
 
 已验证版本：**dsh 0.2.0-rc.2**（cordis 4.0.4）。如果机器完全连不上 registry，[docs/MAINTAINER-NOTES.md](docs/MAINTAINER-NOTES.md) 保留了一套离线安装器，属于不受支持的兜底方案。
