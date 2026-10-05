@@ -364,7 +364,17 @@ export function apply(ctx, config) {
         coverage = `Figures embedded in replies so far: ${u.embeddedFigures} of ${u.drawCalls} drawn (${rate}%).`
       }
       const embed = inlineUri === undefined ? embedRel : inlineUri
-      return { path: embedRel, markdown: `![${args.alt}](${embed})`, warnings: rendered.warnings, coverage }
+      // The returned value must be LOSSLESS JSON: the host validates every tool
+      // result and rejects `undefined` as a value (dsh-tools: `value is not
+      // lossless JSON`). So an absent `coverage` must be an ABSENT KEY, never a
+      // key holding undefined - shipping `coverage: undefined` made every
+      // draw_figure call fail for a whole session after 0.1.0.
+      return {
+        path: embedRel,
+        markdown: `![${args.alt}](${embed})`,
+        warnings: rendered.warnings,
+        ...(coverage !== undefined ? { coverage } : {}),
+      }
     },
   })), 'inline-figures: draw_figure tool')
 

@@ -19,6 +19,7 @@ Add entries under `## [Unreleased]` as you work. `node scripts/release.mjs` roll
 
 ### Fixed
 
+- **`draw_figure` failed every call with `value is not lossless JSON`.** The host validates each tool result with `isJsonValue` (dsh-tools) and rejects a value of `undefined`, so the `coverage` field added in 0.1.0 — present but `undefined` whenever the session had not yet embedded a figure — failed the gate on every call, including the simplest `timeline`. An absent field must be an absent KEY, never a key holding `undefined`. `scripts/_repro-png-check.mjs` now asserts with the host's own validator instead of `JSON.stringify` (which drops `undefined` keys and cannot see the difference); putting the bug back turns all five cases red.
 - An invented figure path was indistinguishable from a real one until a reader looked at it. The repair steer shares the steer budget (two per session), so a model that keeps inventing names cannot loop the turn.
 
 ## [0.1.0] - 2026-10-05

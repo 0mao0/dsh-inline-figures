@@ -51,6 +51,18 @@ const cases = {
 }
 
 let pass = 0, fail = 0
+// The host validates EVERY tool result against this walker and rejects a value
+// of `undefined` ("value is not lossless JSON", dsh-tools). JSON.stringify cannot
+// see the difference - it drops undefined keys - so this repro asserts with the
+// host's own validator. Regression: `coverage: undefined` made every
+// draw_figure call fail for a whole session after 0.1.0 shipped.
+let isJsonValue
+try {
+  ;({ isJsonValue } = await import('@deepseek-ai/dsh-util-values'))
+} catch {
+  isJsonValue = undefined
+}
+console.log(isJsonValue === undefined ? 'WARN  dsh-util-values unavailable: lossless-JSON assert skipped' : 'OK    host lossless-JSON validator loaded')
 for (const [name, spec] of Object.entries(cases)) {
   try {
     const res = await tool.execute({ spec, alt: `${name} verify`, slug: `verify-${name}` }, mkExec())
@@ -58,6 +70,8 @@ for (const [name, spec] of Object.entries(cases)) {
     const onDisk = ok && fs.existsSync(path.join(cwd, res.path))
     const magic = onDisk && fs.readFileSync(path.join(cwd, res.path)).subarray(0, 4).toString('hex') === '89504e47'
     const svgTwin = onDisk && fs.existsSync(path.join(cwd, res.path.replace(/\.png$/, '.svg')))
+    // The result the host will receive must survive its own lossless-JSON gate.
+    const lossless = isJsonValue === undefined ? true : isJsonValue(res)
     // Fully opaque: the PNG must not depend on the page background.
     let opaque = false
     if (onDisk && magic && sharp) {
@@ -66,8 +80,8 @@ for (const [name, spec] of Object.entries(cases)) {
       for (let i = 3; i < data.length; i += info.channels) if (data[i] < 255) clear += 1
       opaque = clear === 0
     }
-    const okAll = ok && onDisk && magic && svgTwin && opaque
-    console.log(`${okAll ? 'PASS' : 'FAIL'} execute:${name} -> ${res?.path}  (png:${!!magic} svgTwin:${!!svgTwin} opaque:${opaque} warnings:${res?.warnings?.length ?? '?'})`)
+    const okAll = ok && onDisk && magic && svgTwin && opaque && lossless
+    console.log(`${okAll ? 'PASS' : 'FAIL'} execute:${name} -> ${res?.path}  (png:${!!magic} svgTwin:${!!svgTwin} opaque:${opaque} lossless:${lossless} warnings:${res?.warnings?.length ?? '?'})`)
     okAll ? pass++ : fail++
   } catch (e) {
     console.log(`FAIL execute:${name} -> ${e?.message ?? e}`)
