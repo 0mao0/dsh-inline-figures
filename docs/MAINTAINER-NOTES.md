@@ -50,6 +50,9 @@ node scripts/release.mjs --push        # 连 commit 和 tag 一起推（需要�
 
   `release.yml` 只校验「tag 名 == 根 package.json 的 version」并要求 changelog 有该版本的段落，tag 指向哪棵树都满足；它不发 npm，npm 永远是本地 `npm publish`。
 
+- **tag 必须是轻量 tag（实测 2026-10-05）**。0.1.0 首次用**注解 tag** 推送时，`release.yml` 完全没有被触发（运行记录里没有该次运行，workflow 状态是 active）；把同一个 commit 换成**轻量 tag** 重推，run #4 立刻出现并 success。`release.mjs` 因此从 `git tag -a vX -m vX` 改成 `git tag vX`，与 v0.0.1–v0.0.3 的形状一致。若某次发布后 GitHub 上没有 Release，先查这件事。
+- **npm 是本地 `npm publish` 发的**，`release.yml` 里没有 npm 步骤；CI 也不发（`ci.yml` 只跑测试）。发布前用 `npm pack --dry-run` 核对 tarball 文件数（当前 30 个文件 / 约 972 kB）。
+
 `test/version.test.js` 是发版门禁：package.json 版本、changelog 顶部版本、两份 README 的版本徽章、每个语言变体的 name/description 头、关键词行、语言切换、Karpathy/ASD-STE100 署名、以及**各自那两张图**（`before-after*` 与 `how-it-works*`），任何一处不一致就红。`scripts/release.mjs` 只改三处文件（package.json、CHANGELOG.md、两份 README），测试失败会自动回滚，不留半成品。
 
 推 `v*` 标签触发 `.github/workflows/release.yml`：校验标签与 `package.json` 一致 → 跑测试 → 用 changelog 里该版本的段落发布 GitHub Release（`node scripts/release.mjs --notes <version>` 就是取那一段）。

@@ -163,7 +163,13 @@ const git = (args) => {
 try {
   git(['add', 'package.json', 'CHANGELOG.md', 'README.md', 'README-zh.md'])
   git(['commit', '-m', `chore(release): v${next}`])
-  git(['tag', '-a', `v${next}`, '-m', `v${next}`])
+  // A LIGHTWEIGHT tag on purpose. Measured 2026-10-05: the annotated tag
+  // (`git tag -a`) that this script used to create did not trigger the release
+  // workflow when its commit was not an ancestor of the branch being pushed,
+  // while pushing the same commit as a lightweight tag triggered it at once.
+  // v0.0.1-v0.0.3 all shipped as lightweight tags, the same shapes the local
+  // repository had. `release.yml` only needs the tag NAME to match the version.
+  git(['tag', `v${next}`])
 } catch (error) {
   console.error(`\n${error.message}\nthe files are edited and committed state is unchanged; fix and rerun, or reset with: git reset --hard`)
   process.exit(1)
