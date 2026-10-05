@@ -9,6 +9,8 @@ Add entries under `## [Unreleased]` as you work. `node scripts/release.mjs` roll
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-05
+
 ### Added
 
 - **Grouped bar and line charts.** `chart` takes `seriesNames` plus one `values` array per item: `{seriesNames: ["修前","修后"], data: [{label:"图边", values:[13,41]}]}` draws one group of two bars per metric, with a legend. A before/after comparison had no way to be expressed, so it was flattened into one bar per metric-and-time with the time tag concatenated into the label — which stops being a comparison.
