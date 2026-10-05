@@ -29,6 +29,10 @@ Long model answers are walls of text. Two fixes are well known, and this plugin 
 
 One turn, three moves. The model decides that a point needs a figure and calls `draw_figure`; the host plugin validates the spec, renders it, writes the file, and returns one Markdown line; the model pastes that line into the reply, where the ordinary Markdown image renders it full width. There is no new UI and no client code — the figure travels the same image channel as any other picture in a message.
 
+### When the model forgets
+
+A tool cannot place anything in a reply by itself, so the plugin closes the gap from the host side. It reads the answer the model is about to close on, and when that answer carries structure — a table, five or more list items, a comparison, a plan, a flow — with no figure at all, it steers the agent at `agent/turn-stopping`. Steering re-opens the inbox, so the model owes another step and draws the figure before the answer ships. That path is capped at two steers per session with a two-turn gap, and it only arms once the session has drawn at least once; a session that never draws is answered with a reminder attached to the next tool result instead, which costs no extra model step.
+
 ## Install
 
 DSH has its own plugin manager, so nothing is copied by hand and no package-manager command runs against your profile.
@@ -103,7 +107,7 @@ Only the session workspace, and nothing leaves the machine.
 - **No network calls, no uploads, no telemetry.** Rendering happens locally; the only traffic in a turn is the model call itself.
 - **Per session.** A figure lands in the directory of the session that drew it. Each directory keeps its newest 200; older ones are pruned by modification time, and a pruned SVG takes its PNG twin with it.
 - **A figure is a reference, not a copy.** Delete the files and old replies show a broken image, so treat the directory as part of the conversation, not as scratch space.
-- **If rasterization fails**, the reply embeds the SVG instead, and the plugin writes `raster-diagnostic.txt` beside itself so the failure is visible to you and not only to the model.
+- **If rasterization fails**, the reply embeds the SVG as an inline data URI instead, so the figure still renders, and the plugin appends the failure to `raster-diagnostic.txt` in this directory. A relative `.svg` link cannot be used as a fallback: the GUI serves figure files with a CSP `sandbox` header, and Chromium refuses to rasterize an SVG loaded that way — it renders as a broken image.
 
 Nothing else is written per answer. Two install-time artefacts can exist elsewhere: the offline fallback's staging copy under `~/.dsh/vendor`, and `sharp` in the profile's `node_modules`.
 
@@ -132,7 +136,9 @@ $env:UPDATE_GOLDEN='1'; node --test test/architecture.test.js   # refresh layout
 node scripts/make-readme-image.mjs                     # rebuild the before/after images
 node scripts/make-readme-diagram.mjs                   # rebuild the how-it-works diagrams
 node scripts/_repro-png-check.mjs                      # real cordis: mounts the plugin, executes all five kinds, proves unload cleanup
-node scripts/_repro-nudge.mjs                          # real cordis: drives the nudge events
+node scripts/_repro-nudge.mjs                          # real cordis: drives the counter-fallback nudge channel
+node scripts/_repro-nudge-channels.mjs                 # real cordis: proves the closing-turn channel steers, and stays quiet on a figure-bearing or atomic answer
+$env:DSH_INLINE_FIGURES_SHARP='C:\nonexistent.cjs'; node scripts/_repro-degrade.mjs   # forces every raster layer to miss: data URI + diagnostic
 ```
 
 `test/compliance.test.js` is the gate for the official host contract described under [Install](#what-the-harness-checks-before-it-installs): host packages as peers, the compatibility check armed, the patch row matching the package name, publishable identity, the display metadata, and every resource registered through `ctx.effect`.

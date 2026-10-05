@@ -29,6 +29,10 @@
 
 一个回合三步。模型判定某处该有图，调用 `draw_figure`；宿主插件校验规格、渲染、写文件，回一行 Markdown；模型把这一行贴进正文，普通的 Markdown 图片把它渲染成满宽图。没有新界面，也没有客户端代码——图走的是消息里任何一张图片都走的同一条通道。
 
+### 模型忘了画的时候
+
+工具无法自己把内容放进回复里，所以插件从宿主侧补上这一步：它读取模型即将发出的那段回答，如果里面带着结构（表格、五条以上的列表、对照、计划、流程）却一张图都没有，就在 `agent/turn-stopping` 处给 agent 发一次 steer。steer 会重新打开收件箱，模型因此必须再走一步，在回答发出前把图画出来。这条通道每个会话最多触发两次、两次之间隔两个回合，并且只在会话已经画过图之后才启用；从没画过图的会话改用挂在下一个工具结果上的提醒，不额外消耗模型步数。
+
 ## 安装
 
 DSH 自带插件管理器。你不需要手工拷文件，也不需要在 profile 里跑包管理器。
@@ -103,7 +107,7 @@ draw_figure({ spec, alt, slug? }) -> { path, markdown, warnings }
 - **不联网、不上传、无遥测。** 渲染全在本地；一个回合里唯一的网络流量就是模型调用本身。
 - **按会话分目录。** 图落在画它的那个会话目录里。每个目录只保留最新 200 张，超出按修改时间清理，被清掉的 SVG 连同它的 PNG 孪生一起删除。
 - **图是引用，不是副本。** 删掉文件，旧回答里的图就变成破图——把这个目录当成对话的一部分，而不是可随手清理的临时文件。
-- **栅格化失败时**，正文改嵌 SVG，插件还会在自己旁边写一个 `raster-diagnostic.txt`，让失败对你可见，而不是只告诉模型。
+- **栅格化失败时**，正文改嵌 SVG 的 data URI，图仍然能显示；插件同时把这次失败追加写进本目录的 `raster-diagnostic.txt`。不能退回到相对路径的 `.svg` 链接：GUI 给图片文件带的是 CSP `sandbox` 头，Chromium 拒绝把这种来源的 SVG 光栅化，它只会渲染成破图。
 
 每次出图不会在别处留下东西。只有两处安装期产物可能在会话工作区之外：离线兜底安装器在 `~/.dsh/vendor` 下的暂存副本，以及 profile `node_modules` 里的 `sharp`。
 
@@ -132,7 +136,9 @@ $env:UPDATE_GOLDEN='1'; node --test test/architecture.test.js   # 重新生成�
 node scripts/make-readme-image.mjs                     # 重新生成 before/after 对比图
 node scripts/make-readme-diagram.mjs                   # 重新生成原理图
 node scripts/_repro-png-check.mjs                      # 真实 cordis：挂载插件、跑完五种图型、并验证卸载清理
-node scripts/_repro-nudge.mjs                          # 真实 cordis：驱动 nudge 事件
+node scripts/_repro-nudge.mjs                          # 真实 cordis：驱动计数器兜底那条提醒通道
+node scripts/_repro-nudge-channels.mjs                 # 真实 cordis：证明收尾通道会 steer，且对已有图或原子回答保持安静
+$env:DSH_INLINE_FIGURES_SHARP='C:\nonexistent.cjs'; node scripts/_repro-degrade.mjs   # 让所有光栅化层都失败：验证 data URI 与诊断文件
 ```
 
 `test/compliance.test.js` 是官方宿主契约的门禁，规则见上面[「装之前宿主会检查什么」](#装之前宿主会检查什么)：宿主包必须是 peer、兼容门禁必须武装、patch 行名必须等于包名、身份必须可发布、展示元数据必须齐全、每个资源都必须走 `ctx.effect` 注册。

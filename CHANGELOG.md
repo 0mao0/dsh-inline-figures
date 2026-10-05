@@ -9,6 +9,24 @@ Add entries under `## [Unreleased]` as you work. `node scripts/release.mjs` roll
 
 ## [Unreleased]
 
+### Added
+
+- **Grouped bar and line charts.** `chart` takes `seriesNames` plus one `values` array per item: `{seriesNames: ["修前","修后"], data: [{label:"图边", values:[13,41]}]}` draws one group of two bars per metric, with a legend. A before/after comparison had no way to be expressed, so it was flattened into one bar per metric-and-time with the time tag concatenated into the label — which stops being a comparison.
+- **Closing-turn channel (the figure no longer depends on the model remembering).** `agent/turn-stopping` now runs the same structure check the nudge uses: when a drawing session tries to close on an answer that carries structure (a table, five-plus list items, or comparison/plan/flow prose) and no figure, the plugin steers the agent, which re-opens the inbox so the model owes another step and draws the figure. Capped at two steers per session with a two-turn gap, so it cannot loop. Measured cause: an AnGIneer session drew 12 figures over 29 turns while individual answers shipped tables, and the old rate-only rule stayed silent for all 29 turns — the model's own reasoning said "I already drew 9 figures, I'll use a table here".
+- Guidance runs as a procedure, not a preference: plan the structures first, make the `draw_figure` calls in the same batch, write the answer around the figures, then self-check the prepared answer for a table or long list that should have been a figure.
+- `raster-diagnostic.txt` in the session workspace records every raster degradation where the user can read it, plus a session figure-coverage line in the tool result (figures embedded in replies versus figures drawn).
+
+### Fixed
+
+- **An asymmetric before/after chart is refused with the fix in the message.** A chart whose label pairs a metric with 修后 but not 修前 (or the reverse) is not a comparison, and the missing half silently drops a number the answer's own table carries. The validator names the group, the missing side, and the grouped spec to send instead. Measured case: a chart shipped `进图轮次 修前/修后, 图节点 修前/修后, 图边 修后` while the same answer's table read "图规模 5 节点/13 边 → 24 节点/41 边" — the 图边 修前 value 13 was lost.
+- **The closing channel is gated on the session's own shape.** It arms only in a session that has drawn at least once; the cheap reminder channel only in a session that has already produced a structured answer. Without that gate a working session (code, commits, verification logs) would be steered into drawing figures it does not need, at one extra model step each time.
+- **A raster failure no longer produces a broken image.** The GUI serves figure files with `Content-Security-Policy: sandbox; default-src 'none'`, and Chromium refuses to rasterize an SVG loaded that way — so falling back to a relative `.svg` link (`option A`'s documented fallback) rendered nothing at all. Measured live in the DSH Web GUI on 2026-10-05: the `.svg` link is a broken image while the PNG twin renders. The fallback order is now PNG → inline SVG data URI (32 KB budget) → relative path with a loud warning.
+- A failed `sharp` load is cached per attempt instead of forever, and the diagnostic moved out of the plugin directory: under the shell sandbox an install below `~/.dsh` cannot be written, so the old one-time `raster-diagnostic.txt` write failed silently and the degradation stayed invisible for two days.
+- The nudge's per-session counters are keyed by session and dropped on `agent/disposed`. The `session/event` observer cannot iterate a `WeakMap`, and reading the agent map threw `usage.values is not a function` — caught by `scripts/_repro-nudge-channels.mjs`.
+- **Neither channel could read the answer, so both were silently dead.** Two separate causes, both found by probing the live event path rather than reading the code: (1) the usage ledger is created lazily at the first `agent/pre-step`, so a session's FIRST assistant message arrived before the ledger existed and was dropped; (2) the ledger clears its own text copy at every turn boundary, so a `tools/post-execute` read always saw an empty string. The reply text now lives in a session-keyed `latestText` map that only `agent/disposed` clears. A frame that was measured as "12 draws, 0 nudges" is what this looked like from outside.
+- The session key accepts `session.id`, `session.header.id`, `agent.sessionId` and `agent.id`. Reading only `session.id` works on the real `Session` (a getter over its header) but degraded every equivalent object to `'unknown'`, which is what the repro exposed.
+- `decideNudge` reads the reply text from `usage`, never from `opts`: text passed in the wrong argument silently degraded every call to the counter fallback. The readable-text path also had no reminder exit at all — only the steer — so a session that stopped drawing went silent instead of reminding.
+
 ## [0.0.3] - 2026-10-03
 
 ### Added

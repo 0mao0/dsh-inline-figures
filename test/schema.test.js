@@ -90,6 +90,65 @@ test('chart: pie requires positive sum', () => {
   expectOk({ kind: 'chart', title: 't', chartType: 'pie', data: [{ label: 'a', value: 0 }, { label: 'b', value: 3 }] })
 })
 
+test('chart: grouped series are valid, and pie rejects them', () => {
+  const grouped = {
+    kind: 'chart',
+    title: 't',
+    chartType: 'bar',
+    seriesNames: ['修前', '修后'],
+    data: [{ label: '进图轮次', values: [12, 19] }, { label: '图节点', values: [5, 24] }],
+  }
+  expectOk(grouped)
+  expectErrors({ ...grouped, data: [{ label: 'a', values: [1, 2, 3] }] }, 'spec.data[0].values')
+  expectErrors({ ...grouped, data: [{ label: 'a', values: [1, 2], value: 3 }] }, 'spec.data[0]')
+  expectErrors({ ...grouped, data: [{ label: 'a', values: [1, -2] }] }, 'spec.data[0].values[1]')
+  expectErrors({ ...grouped, seriesNames: ['only'] }, 'spec.seriesNames')
+  expectErrors({ kind: 'chart', title: 't', chartType: 'pie', seriesNames: ['a', 'b'], data: [{ label: 'x', values: [1, 2] }] }, 'spec.data')
+})
+
+// The mis-shaped comparison that shipped on 2026-10-05: five flat bars where a
+// before/after table needed three groups of two, and the 图边 修前 value was
+// silently missing from the chart while the answer's own table carried it.
+test('chart: an asymmetric before/after pair is rejected with the fix in the message', () => {
+  const spec = {
+    kind: 'chart',
+    title: 'M1 写路径端到端：修前 vs 修后',
+    chartType: 'bar',
+    data: [
+      { label: '进图轮次 修前', value: 12 },
+      { label: '进图轮次 修后', value: 19 },
+      { label: '图节点 修前', value: 5 },
+      { label: '图节点 修后', value: 24 },
+      { label: '图边 修后', value: 41 },
+    ],
+  }
+  const errors = validateSpec(spec)
+  assert.equal(errors.length, 1, JSON.stringify(errors))
+  assert.equal(errors[0].path, 'spec.data[4]')
+  assert.match(errors[0].message, /图边/)
+  assert.match(errors[0].message, /add the 修前 value/)
+  assert.match(errors[0].message, /values: \[修前, 修后\]/)
+})
+
+test('chart: a complete before/after pair is accepted either way', () => {
+  const pairs = [
+    { label: '进图轮次 修前', value: 12 },
+    { label: '进图轮次 修后', value: 19 },
+    { label: '图边 修前', value: 13 },
+    { label: '图边 修后', value: 41 },
+  ]
+  expectOk({ kind: 'chart', title: 't', chartType: 'bar', data: pairs })
+  expectOk({
+    kind: 'chart',
+    title: 't',
+    chartType: 'bar',
+    seriesNames: ['修前', '修后'],
+    data: [{ label: '进图轮次', values: [12, 19] }, { label: '图边', values: [13, 41] }],
+  })
+  // Labels without a before/after marker are an ordinary single series: untouched.
+  expectOk({ kind: 'chart', title: 't', chartType: 'bar', data: [{ label: 'a', value: 1 }, { label: 'b', value: 2 }] })
+})
+
 test('raw_svg: empty and oversize rejected', () => {
   expectErrors({ kind: 'raw_svg', svg: '' }, 'spec.svg')
   expectErrors({ kind: 'raw_svg', svg: `<svg viewBox="0 0 10 10">${'<!--x-->'.repeat(20000)}</svg>` }, 'spec.svg')

@@ -39,6 +39,46 @@ test('chart bar: golden + bars + rotate warning', () => {
   })
 })
 
+test('chart bar: grouped series render one group per item with a legend', () => {
+  // The shape that was missing on 2026-10-05: a before/after table flattened
+  // into five flat bars lost the 图边 修前 value and stopped being a comparison.
+  const spec = {
+    kind: 'chart',
+    title: 'M1 写路径端到端：修前 vs 修后（真库 19 轮会话）',
+    chartType: 'bar',
+    unit: '计数',
+    seriesNames: ['修前', '修后'],
+    data: [
+      { label: '进图轮次', values: [12, 19] },
+      { label: '图节点', values: [5, 24] },
+      { label: '图边', values: [13, 41] },
+    ],
+  }
+  renderAndCheck('chart-bar-grouped', spec, (svg, warnings) => {
+    assert.equal((svg.match(/rx="4"/g) ?? []).length, 6, 'three groups x two series')
+    assert.equal((svg.match(/rx="2.5"/g) ?? []).length, 2, 'one legend swatch per series')
+    assert.ok(svg.includes('>修前<') && svg.includes('>修后<'), 'legend names both series')
+    assert.ok(svg.includes('>13<'), 'the previously dropped before value is drawn')
+    assert.ok(!warnings.some((w) => w.includes('rotated')), JSON.stringify(warnings))
+  })
+})
+
+test('chart line: grouped series draw one polyline per series', () => {
+  const spec = {
+    kind: 'chart',
+    title: 't',
+    chartType: 'line',
+    seriesNames: ['前', '后'],
+    data: [
+      { label: 'a', values: [1, 3] },
+      { label: 'b', values: [2, 5] },
+    ],
+  }
+  const { svg } = chart(spec)
+  assert.equal((svg.match(/<polyline/g) ?? []).length, 2)
+  assert.equal((svg.match(/class="dot"/g) ?? []).length, 4)
+})
+
 test('chart line: thins value labels beyond 8 points', () => {
   const spec = {
     kind: 'chart',

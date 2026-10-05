@@ -24,14 +24,31 @@ README 面向使用者，本文件保存踩坑记录与实现约束。改动前�
 
 ## 发版
 
-目前只走补丁位：0.0.1 -> 0.0.2 -> 0.0.3。
+补丁位是默认档（0.0.1 -> 0.0.2 -> 0.0.3），**行为不兼容或新增能力时走小版本**：0.1.0 引入分组柱状图，并把「非对称的修前/修后对比图」从静默画错改成报错拒收（拒收原本能通过的输入，属 semver 意义上的不兼容）。
 
 ```powershell
 # 先在 CHANGELOG.md 的 "## [Unreleased]" 下写变更，然后：
-node scripts/release.mjs              # 升版本、定版 changelog、同步两份 README 的徽章、跑测试、commit、打 tag
-node scripts/release.mjs --dry-run    # 只打印计划，不改任何文件
-node scripts/release.mjs --push       # 连 commit 和 tag 一起推
+node scripts/release.mjs --bump minor   # 升版本、定版 changelog、同步两份 README 的徽章、跑测试、commit、打 tag
+node scripts/release.mjs --dry-run     # 只打印计划，不改任何文件
+node scripts/release.mjs --push        # 连 commit 和 tag 一起推（需要先配好 remote，见下）
 ```
+
+**发版的环境约束（2026-10-05 实测）**：
+
+- 工作区仓库**没有 remote**，`git push` 必须显式指定地址。
+- **GitHub 只能走 SSH**：`github.com:443` 被阻断，22 端口与 `ssh -T git@github.com` 正常；HTTPS 克隆/推送会 `Could not read from remote`。
+- **npm 只能走 HTTPS**：`registry.npmjs.org:443` 可达，token 在 `~/.npmrc`。
+- **两者都要在沙箱外执行**：沙箱内 Git for Windows 无法 fork 它的 MSYS 进程（`NtCreateDirectoryObject ... 0xC0000022`），`git ls-remote` 直接 fatal；npm 也无法写 `AppData\Local\npm-cache`。`test/`、`node --test`、`node scripts/*.mjs` 全部可在沙箱内跑。
+- **GitHub 仓库根目录就是包**（`index.js`/`lib/`/`README.md` 在根），工作区仓库把包放在 `packages/dsh-inline-figures/`，两者历史无共同祖先。发布镜像用 `git subtree`：
+
+  ```powershell
+  git remote add origin git@github.com:0mao0/dsh-inline-figures.git   # 首次
+  git subtree split --prefix=packages/dsh-inline-figures -b pkg-mirror
+  git push --force origin pkg-mirror:main
+  git push origin refs/tags/v0.1.0     # tag 指向工作区 commit，与镜像树内容一致
+  ```
+
+  `release.yml` 只校验「tag 名 == 根 package.json 的 version」并要求 changelog 有该版本的段落，tag 指向哪棵树都满足；它不发 npm，npm 永远是本地 `npm publish`。
 
 `test/version.test.js` 是发版门禁：package.json 版本、changelog 顶部版本、两份 README 的版本徽章、每个语言变体的 name/description 头、关键词行、语言切换、Karpathy/ASD-STE100 署名、以及**各自那两张图**（`before-after*` 与 `how-it-works*`），任何一处不一致就红。`scripts/release.mjs` 只改三处文件（package.json、CHANGELOG.md、两份 README），测试失败会自动回滚，不留半成品。
 
@@ -52,6 +69,7 @@ README 图片不是手搓的：`node scripts/make-readme-image.mjs`（before/aft
 
 3. **引导语脂肪**。`GUIDANCE_TEXT` 6,133 字符（约 1,700 token）+ 工具描述 902 + `SPEC_DESCRIPTION` 909 ≈ 2,200 token 常驻系统提示，且"SVG 优先/永不用 ASCII/原子回答豁免"三处在引导语与工具描述里重复。ASD-STE100 散文风格规则与出图无关，可移出。
 4. **index.js 的 `execute` 仍没有被单元测试直接覆盖**。`test/index.test.js` 是源码正则断言，语义等价的重构会挂、真 bug 能过；目前靠 `scripts/_repro-png-check.mjs`（真实 cordis）兜底。修法：抽出 `executeDraw(args, deps)` 接缝，把 e2e 断言搬进 `node --test`。
+5. **看门狗的两条通道在 0.1.0 之前从未真正跑通过**。`session/event` 的正文读取踩了两个坑：账本 `usage` 是懒建的（会话第一条回答到达时账本还不存在），且账本在每个回合边界清空自己的文本副本；结果 `post-execute` 与 `turn-stopping` 判定的一直是空串。已改为按会话键的 `latestText`（只有 `agent/disposed` 清），并新增 `scripts/_repro-nudge-channels.mjs` 走真实事件路径。**教训：绕过真实事件源的 e2e 会给假信心**——早期 `_repro-nudge.mjs` 直接在根 ctx 上 emit，所以一直是绿的。
 
 配套复现脚本在仓库外的 `_probe/figs-review/`（像素统计、并发压测、布局扫描、依赖与提示词计量），未纳入版本控制。
 
@@ -93,7 +111,7 @@ $env:UPDATE_GOLDEN='1'; node --test test/architecture.test.js   # 重新生成�
 2. `additionalProperties:false` 的对象会在**运行时**拒绝任何不在 `properties` 白名单里的键。`spec` 是异构的，因此必须保持 **`additionalProperties: true`（开放）**——宿主只负责透传，真正的深校验在 execute 期的 `validateSpec()`/`drawFigure()`。改成 `false` 会让每一次调用都失败于 `"spec.kind" is not a declared property`。
 3. output 用的是另一套 "value schema" DSL：**只能逐属性写 `required: true`**，写顶层 `required:[...]` 数组会编译报错。
 
-回归防线：`scripts/_repro-png-check.mjs` 用**真实 cordis** 挂载 SystemPrompt + ToolRuntime + 本插件，逐一把五种 spec execute，断言 markdown 嵌 PNG + 磁盘 PNG magic + SVG 孪生文件存在，最后卸载插件并断言 `draw_figure` 确实消失（后者只有走 `ctx.effect` 注册才会通过）。从包根目录跑，期望 `E2E: 6 pass, 0 fail`。另一个 `scripts/_repro-nudge.mjs` 期望 `E2E: 3 pass, 0 fail`。
+回归防线：`scripts/_repro-png-check.mjs` 用**真实 cordis** 挂载 SystemPrompt + ToolRuntime + 本插件，逐一把五种 spec execute，断言 markdown 嵌 PNG + 磁盘 PNG magic + SVG 孪生文件存在，最后卸载插件并断言 `draw_figure` 确实消失（后者只有走 `ctx.effect` 注册才会通过）。从包根目录跑，期望 `E2E: 6 pass, 0 fail`。`scripts/_repro-nudge.mjs`（计数器兜底与提醒通道）期望 `4 pass, 0 fail`；`scripts/_repro-nudge-channels.mjs`（收尾 steer 通道、带图/原子回答不触发）期望 `5 pass, 0 fail`；`scripts/_repro-degrade.mjs`（强制所有 sharp 层失败，验证 data URI 与诊断文件）期望 `7 pass, 0 fail`。
 
 加载器为何写显式 `.cjs` 文件 URL 而不是 bare `import('sharp')`：实测 bare 解析**随安装布局变化**——在插件安装目录内它落到本插件的 `dist/index.mjs`，但从工作区包目录跑则落到用户家目录 `~\node_modules\sharp\lib\index.js`（另一个更老的副本）。显式文件 URL 两个位置都确定命中同一个 staged 副本。
 

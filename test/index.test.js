@@ -76,10 +76,36 @@ test('soft nudge wires like the first-party repeat-tool-reminder plugin', () => 
   assert.match(src, /source: \{ \.\.\.NUDGE_SOURCE, form: 'notice'/)
   assert.match(src, /createUserMessage/)
   // Successful draws feed the policy counter.
-  assert.match(src, /usageOf\(exec\.agent\)\.drawCalls \+= 1/)
+  assert.match(src, /u\.drawCalls \+= 1/)
   // Nudge is gated by its own volatile config, defaulting on.
   assert.match(src, /nudge: z\.boolean\(\)\.default\(true\)\.volatile\(\)/)
   assert.match(src, /if \(config\.nudge\) \{/)
+})
+
+// The closing-turn channel is what makes insertion independent of the model's
+// memory: a structured, figure-less answer must not close the turn. It reuses
+// the host's own steer contract (`agent/turn-stopping` is a serial hook awaited
+// before the boundary commits; steering re-opens the inbox for another step).
+test('closing-turn channel steers instead of waiting for the model to remember', () => {
+  assert.match(src, /ctx\.on\('agent\/turn-stopping'/)
+  assert.match(src, /agent\.steer\(createUserMessage/)
+  assert.match(src, /NUDGE_STEER/)
+  // The reply text is what both channels judge. It is read from `latestText`,
+  // a session-keyed map filled by `session/event`: the turn ledger clears itself
+  // at every boundary AND is still empty when a session's first answer arrives,
+  // so a ledger read saw an empty string (both mistakes were measured live).
+  assert.match(src, /ctx\.on\('session\/event'/)
+  assert.match(src, /event\?\.type !== 'assistant\/message'/)
+  assert.match(src, /extractAssistantText/)
+  assert.match(src, /countFiguresIn/)
+  assert.match(src, /const latestText = new Map\(\)/)
+  assert.match(src, /latestText\.set\(key, text\)/)
+  // Text travels in `usage`, never in `opts` - putting it in the wrong argument
+  // silently degraded every call to the counter fallback (found by live probe).
+  assert.match(src, /decideNudge\(\{ \.\.\.u, text \}, \{ only: 'remind' \}\)/)
+  assert.match(src, /decideNudge\(\{ \.\.\.u, text \}\)/)
+  // The closing channel judges the session's latest answer, not the ledger copy.
+  assert.match(src, /const text = latestText\.get\(sessionKeyOf\(agent\)\)/)
 })
 
 test('output contract matches the portable render fields', () => {
@@ -116,9 +142,12 @@ test('rasterizes to PNG with graceful SVG fallback (option A)', () => {
   // layout-dependent and was probe-verified landing on an unrelated older copy
   // in the user's home node_modules instead of this plugin's staged one
   // (scripts/_validate-cache-load.cjs prints the resolved path).
-  assert.match(src, /await import\(pathToFileURL\(LOCAL_SHARP\)\.href\)/, 'layer 1: the nested layout and the offline staging copy')
+  assert.match(src, /await import\(pathToFileURL\(SHARP_OVERRIDE \?\? LOCAL_SHARP\)\.href\)/, 'layer 1: the nested layout and the offline staging copy')
   assert.match(src, /await import\('sharp'\)/, "layer 2: bare resolution - the official profile install hoists the declared dependency to the profile root")
   assert.match(src, /await import\(pathToFileURL\(STAGED_SHARP\)\.href\)/, 'layer 3: the offline staging cache')
+  // A support hook forces every layer to miss, so the degradation path is
+  // exercisable without uninstalling sharp (scripts/_repro-degrade.mjs).
+  assert.match(src, /const SHARP_OVERRIDE = process\.env\.DSH_INLINE_FIGURES_SHARP/)
   // Order matters: the declared copy must win over the unrelated copy in the
   // user's home node_modules that bare resolution once landed on.
   assert.ok(src.indexOf("await import('sharp')") < src.indexOf('pathToFileURL(STAGED_SHARP)'), 'layers must stay in order')
@@ -131,15 +160,35 @@ test('rasterizes to PNG with graceful SVG fallback (option A)', () => {
   assert.match(src, /\.dsh.*inline-figures.*sharp-js/)
   // Load happens once, lazily (a cached promise), never per call.
   assert.match(src, /rasterPromise === null/)
-  // Raster failure degrades to SVG embedding + a warning, never a failed draw.
+  // Raster failure degrades - PNG -> inline data URI -> relative SVG + warning -
+  // and NEVER fails the draw. A relative .svg is a broken image in the GUI, so a
+  // failure must not fall straight through to it.
   assert.ok(src.includes("file.replace(/\\.svg$/, '.png')"), 'PNG twin derived from the svg name')
-  assert.match(src, /PNG raster failed/)
-  assert.match(src, /PNG rasterizer unavailable/)
+  assert.match(src, /raster call failed/)
+  assert.match(src, /no rasterizer/)
+  assert.match(src, /svgDataUri/)
   const embed = src.slice(src.indexOf('let embedRel'), src.indexOf('await pruneFigures'))
   assert.ok(embed.includes('embedRel = svgRel'), 'embed starts as SVG')
   assert.match(embed, /embedRel = `\.dsh-figures\/\$\{dirName\}\/\$\{pngFile\}`/, 'successful raster embeds the PNG')
-  // Return value follows the embed target.
-  assert.match(src, /markdown: `!\[\$\{args\.alt\}\]\(\$\{embedRel\}\)`/)
+  assert.match(embed, /inlineUri = inline\.uri/, 'a failed raster falls back to the inline data URI')
+  // Return value follows the embed target: the PNG path, or the data URI.
+  assert.match(src, /const embed = inlineUri === undefined \? embedRel : inlineUri/)
+  assert.match(src, /markdown: `!\[\$\{args\.alt\}\]\(\$\{embed\}\)`/)
+  // The degradation is recorded where the USER can read it. Writing next to the
+  // plugin failed silently (an install under ~/.dsh is outside the shell sandbox),
+  // which is why a raster failure stayed invisible for two days.
+  assert.match(src, /async function writeDiagnostic\(dir, reason\)/)
+  assert.match(src, /fsp\.appendFile\(\s*path\.join\(dir, 'raster-diagnostic\.txt'\)/)
+  assert.match(src, /await writeDiagnostic\(dir, rasterFailure\)/)
+})
+
+// A data URI is an image, not a document, so the GUI's `sandbox` CSP cannot
+// block it the way it blocks a relative .svg link (measured live, 2026-10-05:
+// the .svg link rendered as a broken image in the DSH Web GUI).
+test('svgDataUri enforces a size budget and fails closed', () => {
+  assert.match(src, /const DATA_URI_MAX_BYTES = 32 \* 1024/)
+  assert.match(src, /return \{ ok: false, bytes \}/)
+  assert.match(src, /data:image\/svg\+xml;base64,/)
 })
 
 test('the rasterized PNG gets an opaque canvas, the SVG archive does not', () => {

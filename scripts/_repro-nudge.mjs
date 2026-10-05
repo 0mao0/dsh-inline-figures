@@ -32,9 +32,12 @@ const mkAgent = () => ({ session: { header: { id: 'nudge-session-0001', cwd } } 
 // In cordis, a waterfall listener chain returns the LAST result, so the emit
 // promise resolves to whatever the plugin's listener returned downstream.
 async function firePreStep(agent, hasUser) {
-  // Correct cordis usage: waterfall([thisArg,] event, ...args, end).
-  // ctx.waterfall binds `next` per hop; end runs when the chain drains.
   return root.waterfall('agent/pre-step', { agent, messages: [{ source: { kind: hasUser ? 'user' : 'tool' } }] }, () => undefined)
+}
+// The reply text is what the channels judge; `session/event` is how the plugin
+// learns it. Emitting it here keeps the repro on the real event path.
+async function fireAssistant(agent, text) {
+  return root.emit('session/event', agent.session, { type: 'assistant/message', data: { content: [{ type: 'text', text }] } })
 }
 async function firePost(agent, toolName) {
   const result = { kind: 'proceed' }
@@ -42,25 +45,39 @@ async function firePost(agent, toolName) {
   return root.waterfall('tools/post-execute', { agent, name: toolName }, result, () => result)
 }
 
+// A structured answer (a table) with no figure: what opens the window in which
+// the cheap channel may speak. Long enough to pass the structure floor
+// (NUDGE_DEFAULTS.minChars), because a two-line reply is atomic by definition.
+const STRUCTURED_REPLY = `| 项 | 现状 |\n| --- | --- |\n| A | 1 |\n| B | 2 |\n${'说明。'.repeat(320)}`
+
 const agent = mkAgent()
 let pass = 0, fail = 0
 const check = (label, ok, extra = '') => { ok ? pass++ : fail++; console.log(`${ok ? 'PASS' : 'FAIL'} ${label}${extra ? ' :: ' + extra : ''}`) }
 
-// Turn 1: user prompt arrives, then a non-figure tool call completes.
+// Turn 1: a structured answer is written, then the next user prompt arrives.
+await fireAssistant(agent, STRUCTURED_REPLY)
 await firePreStep(agent, true).catch((e) => console.log('preStep emit threw:', e.message))
 let res = await firePost(agent, 'read').catch((e) => ({ threw: e.message }))
 check('turn1 (1st turn) no nudge', !hasReminder(res))
-
-// Turn 2: user prompt + another zero-figure tool call => nudge due (0 draws, 2 turns).
+// Turn 2: the answer text is not in the turn ledger yet (an assistant message is
+// still streaming), so the counter fallback applies and still waits for a
+// DORMANT session (3+ answered turns with zero draws).
 await firePreStep(agent, true).catch(() => {})
 res = await firePost(agent, 'grep').catch((e) => ({ threw: e.message }))
-check('turn2 reminds', hasReminder(res), JSON.stringify(res?.additionalContexts?.length ?? res))
+check('turn2 stays quiet (dormant threshold not reached)', !hasReminder(res))
 
-// Turn 3 draws a figure => healthy rate => no more reminders.
+// Turn 3: three answered turns, zero draws, structured session => one reminder.
+await firePreStep(agent, true).catch(() => {})
+res = await firePost(agent, 'grep').catch((e) => ({ threw: e.message }))
+if (process.env.DSH_IF_DEBUG === '1') console.log('DEBUG turn3 result:', JSON.stringify(res))
+check('turn3 reminds a dormant structured session', hasReminder(res), JSON.stringify(res?.additionalContexts?.length ?? res))
+
+// The model then draws => the strong channel owns this session, so the cheap
+// channel goes quiet (see _repro-nudge-channels.mjs for the closing channel).
 await tool.execute({ spec: { kind: 'timeline', title: 't', steps: [{ label: 'A', state: 'done' }, { label: 'B' }] }, alt: 'x' }, { signal: new AbortController().signal, agent })
 await firePreStep(agent, true).catch(() => {})
 res = await firePost(agent, 'grep').catch((e) => ({ threw: e.message }))
-check('healthy rate stays quiet', !hasReminder(res))
+check('a drawing session does not use the cheap channel', !hasReminder(res))
 
 function hasReminder(r) {
   const list = r?.additionalContexts ?? []

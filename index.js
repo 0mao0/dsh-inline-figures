@@ -8,7 +8,7 @@ import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { drawFigure, FigureError, validateSpec, formatErrors, GUIDANCE_TEXT, GUIDANCE_TITLE } from './lib/engine.js'
-import { decideNudge, NUDGE_REMINDER, NUDGE_SOURCE } from './lib/nudge.js'
+import { decideNudge, extractAssistantText, countFiguresIn, structureSignal, NUDGE_REMINDER, NUDGE_STEER, NUDGE_SOURCE } from './lib/nudge.js'
 import { writeFigure, pruneFigures, figureRelPath, figureDirName } from './lib/host-utils.js'
 
 // Rasterizer (option A): the GUI serves figure files with a CSP `sandbox`
@@ -17,7 +17,7 @@ import { writeFigure, pruneFigures, figureRelPath, figureDirName } from './lib/h
 // therefore rasterize every figure to PNG (2x) and embed the PNG, keeping the
 // SVG as the archival vector copy.
 //
-// sharp is resolved in layers, first hit wins (lazy, once, cached):
+// sharp is resolved in layers, first hit wins (cache only SUCCESS, see below):
 //  1. <plugin>/node_modules/sharp/dist/index.cjs — the nested layout pnpm uses
 //     for an isolated install, and the offline staging copy.
 //  2. bare import('sharp') — Node resolution from this file. The official
@@ -31,12 +31,18 @@ import { writeFigure, pruneFigures, figureRelPath, figureDirName } from './lib/h
 // layout-dependent; a bare import alone was observed landing on an unrelated
 // older copy in the user's home node_modules. Layer 2 exists because the
 // official install layout has no nested copy to name.
-// Any layer that throws is skipped; total failure degrades to SVG-only and
-// writes raster-diagnostic.txt next to this file (host-side failures are
-// otherwise invisible: warnings reach the model, not the user).
+// Any layer that throws is skipped; total failure degrades to SVG-only.
+//
+// A failure is cached per attempt, never forever: a failed load is retried on
+// the next draw, so a machine that gains sharp mid-process recovers without a
+// DSH restart. The last failure writes ONE line to raster-diagnostic.txt.
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url))
 const STAGED_SHARP = path.join(os.homedir(), '.dsh', 'cache', 'inline-figures', 'sharp-js', 'sharp', 'dist', 'index.cjs')
 const LOCAL_SHARP = path.join(PLUGIN_DIR, 'node_modules', 'sharp', 'dist', 'index.cjs')
+// Test/support hook: point every layer at one explicit entry file, so the
+// degradation path (data URI + diagnostic) is exercisable without deleting an
+// installed sharp. Unset in normal operation.
+const SHARP_OVERRIDE = process.env.DSH_INLINE_FIGURES_SHARP
 
 // The canvas the PNG is rasterized onto — the PNG only. A rasterizer has no
 // prefers-color-scheme, so the theme-adaptive stylesheet collapses to its light
@@ -48,20 +54,62 @@ export function withBackdrop(svg) {
   return svg.replace(/(<svg\b[^>]*>)/, `$1${PNG_BACKDROP}`)
 }
 
+/** The workspace side of a figure path (`<cwd>/.dsh-figures/<dir>/`) or undefined. */
+function figureDirOf(cwd, sid) {
+  if (typeof cwd !== 'string' || cwd === '') return undefined
+  return path.join(cwd, '.dsh-figures', figureDirName(sid))
+}
+
+/**
+ * Record a raster degradation where the USER can find it. The session workspace
+ * is the only path a host plugin may rely on: writing next to the plugin was
+ * observed failing silently (an install under ~/.dsh is outside the shell
+ * sandbox), which is why this failure stayed invisible. Never throws.
+ */
+async function writeDiagnostic(dir, reason) {
+  if (dir === undefined) return
+  try {
+    await fsp.appendFile(
+      path.join(dir, 'raster-diagnostic.txt'),
+      `${new Date().toISOString()}  ${String(reason).slice(0, 400)}\n`,
+    )
+  } catch {}
+}
+
+// 32 KB of SVG becomes ~43 KB of base64 — large enough for a full-width figure,
+// small enough that one inline chat message stays sane.
+const DATA_URI_MAX_BYTES = 32 * 1024
+
+/**
+ * Embed the SVG as a data URI. The GUI serves figure files with
+ * `Content-Security-Policy: sandbox; default-src 'none'`, and Chromium refuses
+ * to rasterize an SVG loaded that way — so a relative `.svg` link is a broken
+ * image in the GUI (measured, 2026-10-05). A data URI is an image, not a
+ * document, so it renders. It is the fallback for a missing rasterizer, not the
+ * default: it costs message bytes and hides the figure from the workspace.
+ */
+export function svgDataUri(svg) {
+  const bytes = Buffer.byteLength(svg, 'utf8')
+  if (bytes > DATA_URI_MAX_BYTES) return { ok: false, bytes }
+  return { ok: true, bytes, uri: `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}` }
+}
+
 let rasterPromise = null
 function loadRasterizer() {
   if (rasterPromise === null) {
     rasterPromise = (async () => {
       const attempts = [
         async () => {
-          const mod = await import(pathToFileURL(LOCAL_SHARP).href)
+          const mod = await import(pathToFileURL(SHARP_OVERRIDE ?? LOCAL_SHARP).href)
           return mod.default ?? mod
         },
         async () => {
+          if (SHARP_OVERRIDE !== undefined) throw new Error('sharp override in use')
           const mod = await import('sharp')
           return mod.default ?? mod
         },
         async () => {
+          if (SHARP_OVERRIDE !== undefined) throw new Error('sharp override in use')
           const mod = await import(pathToFileURL(STAGED_SHARP).href)
           return mod.default ?? mod
         },
@@ -76,13 +124,7 @@ function loadRasterizer() {
           failures.push(`L${i + 1}: ${String(error?.message ?? error).split('\n')[0].slice(0, 120)}`)
         }
       }
-      const reason = failures.join(' | ').slice(0, 400)
-      // One-time diagnostic file next to the plugin: host-side failures are
-      // otherwise invisible (warnings reach the model only, not the user).
-      try {
-        await fsp.writeFile(path.join(PLUGIN_DIR, 'raster-diagnostic.txt'), `${new Date().toISOString()}\n${reason}\n`)
-      } catch {}
-      return { reason }
+      return { reason: failures.join(' | ').slice(0, 400) }
     })()
   }
   return rasterPromise
@@ -103,23 +145,57 @@ const SPEC_DESCRIPTION = [
   'kind=architecture: {title, layers:[{label, note?, tone?: default|danger, badge?: 1-4 chars, nodes:[{label, note?}]}] (2-6 layers, 1-6 nodes each), edges?: [{from, to, label?}], footnote?}.',
   'kind=compare: {title, columnHeads?: [left, right], rows:[{left:{label, note?}, right:{label, note?, tone?: default|danger|ok|muted}}] (1-6 rows), footnote?}.',
   'kind=timeline: {title, steps:[{label, note?, state?: done|active|todo}] (2-10 steps)}.',
-  'kind=chart: {title, chartType: bar|line|pie, data:[{label, value>=0}] (1-12 items), unit?}.',
+  'kind=chart: {title, chartType: bar|line|pie, unit?, seriesNames?: [2-6 names], data:[{label, value>=0} or {label, values:[2-6 numbers]}] (1-12 items)}. A comparison (before/after, arm A/B, two time points) uses GROUPS: {seriesNames: ["修前","修后"], data: [{label:"图边", values:[13,41]}]} draws one group of two bars per metric. NEVER flatten a comparison into one bar per metric-and-time with the time concatenated into the label: it stops being a comparison, and a missing half is rejected.',
 ].join(' ')
 
 export function apply(ctx, config) {
   if (!config.enabled) return
 
-  // Per-agent figure usage for the nudge. WeakMap: entries die with the agent.
+  // Per-session figure usage for the nudge. Keyed by SESSION (not agent) because
+  // the `session/event` observer must find the counters of the session that
+  // emitted the event, and a WeakMap cannot be iterated. Entries die with the
+  // agent (`agent/disposed`), so the map cannot grow with a long-lived host.
   // drawCalls counts from within this process (the tool's execute is the one
   // place every successful draw passes through); a resumed session that drew
   // before a restart starts at zero, and the earliest two answered turns simply
   // see no nudge - a safe, self-correcting floor.
-  const usage = new WeakMap()
+  const usage = new Map()
+  // The assistant's latest text, keyed by session, held OUTSIDE the usage ledger:
+  // the first answer of a session arrives before that session has any counters
+  // (measured: usage was empty when the message landed), and the ledger clears
+  // its own copy at every turn boundary. Without this map the text was dropped
+  // and every structure check silently saw an empty answer.
+  const latestText = new Map()
+  const sessionKeyOf = (agent) => {
+    const candidates = [agent?.session?.id, agent?.session?.header?.id, agent?.sessionId, agent?.id]
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate !== '') return candidate
+    }
+    return 'unknown'
+  }
+  ctx.on('agent/disposed', ({ agent }) => {
+    const key = sessionKeyOf(agent)
+    usage.delete(key)
+    latestText.delete(key)
+  })
   const usageOf = (agent) => {
-    let u = usage.get(agent)
+    const key = sessionKeyOf(agent)
+    let u = usage.get(key)
     if (!u) {
-      u = { drawCalls: 0, turns: 0, nudgesSent: 0 }
-      usage.set(agent, u)
+      u = {
+        drawCalls: 0,
+        turns: 0,
+        nudgesSent: 0,
+        steersSent: 0,
+        lastNudgeTurn: undefined,
+        lastSteerTurn: undefined,
+        turnsSinceDraw: 0,
+        embeddedFigures: 0,
+        structured: false,
+        sawText: false,
+        lastAssistantText: '',
+      }
+      usage.set(key, u)
     }
     return u
   }
@@ -150,12 +226,13 @@ export function apply(ctx, config) {
         properties: {
           path: { type: 'string', required: true, description: 'Figure file path relative to the session workspace.' },
           markdown: { type: 'string', required: true, description: 'Inline image markdown to copy verbatim into the reply.' },
-          warnings: { type: 'array', required: true, items: { type: 'string' }, description: 'Non-fatal layout notes (truncated labels and similar).' },
+          warnings: { type: 'array', required: true, items: { type: 'string' }, description: 'Non-fatal layout or embedding notes (truncated labels, raster degradation).' },
+          coverage: { type: 'string', description: 'Session figure coverage: figures embedded in replies vs. figures drawn.' },
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: `Figure saved: ${value.path}\nInsert this line verbatim into your reply where the figure belongs:\n${value.markdown}${value.warnings.length > 0 ? `\nLayout warnings: ${value.warnings.join('; ')}` : ''}`,
+        text: `Figure saved: ${value.path}\nInsert this line verbatim into your reply where the figure belongs:\n${value.markdown}${value.coverage !== undefined ? `\n${value.coverage}` : ''}${value.warnings.length > 0 ? `\nLayout warnings: ${value.warnings.join('; ')}` : ''}`,
       }],
     },
     async execute(args, exec) {
@@ -182,11 +259,14 @@ export function apply(ctx, config) {
       const { file } = await writeFigure(dir, rendered.svg, args.slug ?? args.spec.kind)
       exec.signal.throwIfAborted()
       const svgRel = `.dsh-figures/${dirName}/${file}`
-      // Rasterize for preview (see loadRasterizer). Failures degrade: keep the
-      // SVG embedding and tell the model why in warnings. 2x width keeps text
-      // crisp on the usual 1x/2x displays.
+      // Rasterize for preview (see loadRasterizer). Failures must never fail the
+      // draw, but they must also never leave a broken image: a relative .svg link
+      // IS broken in the GUI (CSP `sandbox` on /api/file). So the fallback order
+      // is PNG -> inline data URI -> (too large) relative SVG with a warning).
       let embedRel = svgRel
+      let inlineUri
       const raster = await loadRasterizer()
+      let rasterFailure
       if (typeof raster === 'function') {
         try {
           const viewBox = /viewBox="0 0 (\d+(?:\.\d+)?)/.exec(rendered.svg)
@@ -200,16 +280,38 @@ export function apply(ctx, config) {
           await fsp.writeFile(path.join(dir, pngFile), png)
           embedRel = `.dsh-figures/${dirName}/${pngFile}`
         } catch (error) {
-          // A raster failure must never fail the draw: keep the SVG and note it.
-          rendered.warnings.push(`PNG raster failed (${String(error?.message ?? error).split('\n')[0].slice(0, 120)}); the figure is embedded as SVG, which some previews block.`)
+          rasterFailure = `raster call failed: ${String(error?.message ?? error).split('\n')[0].slice(0, 160)}`
         }
       } else {
-        rendered.warnings.push(`PNG rasterizer unavailable (${raster.reason}); the figure is embedded as SVG, which some previews block. Run the plugin's scripts/stage-sharp.mjs to enable PNG.`)
+        rasterFailure = `no rasterizer: ${raster.reason}`
+      }
+      if (rasterFailure !== undefined) {
+        const inline = svgDataUri(rendered.svg)
+        if (inline.ok) {
+          inlineUri = inline.uri
+          rendered.warnings.push(`PNG raster unavailable (${rasterFailure}); the figure is embedded as an SVG data URI so it still renders. Run the plugin's scripts/stage-sharp.mjs to restore PNG.`)
+        } else {
+          rendered.warnings.push(`PNG raster unavailable (${rasterFailure}) and the figure is too large to inline (${inline.bytes} bytes > ${DATA_URI_MAX_BYTES}); it is embedded as a relative .svg, which the GUI cannot render. Stage sharp or shrink the figure.`)
+        }
+        await writeDiagnostic(dir, rasterFailure)
       }
       await pruneFigures(dir, FIGURE_LIMIT)
       // Count the successful draw for the nudge policy of this agent.
-      if (exec.agent) usageOf(exec.agent).drawCalls += 1
-      return { path: embedRel, markdown: `![${args.alt}](${embedRel})`, warnings: rendered.warnings }
+      const u = exec.agent ? usageOf(exec.agent) : undefined
+      if (u !== undefined) {
+        u.drawCalls += 1
+        u.turnsSinceDraw = 0
+      }
+      // Coverage: figures actually embedded in replies vs. figures drawn. A
+      // session at 12 draws and 0 embeds looks healthy to a draw counter while
+      // the reader sees nothing, so the ratio is reported, not just the count.
+      let coverage
+      if (u !== undefined && u.embeddedFigures > 0) {
+        const rate = Math.round((Math.min(u.embeddedFigures, u.drawCalls) / u.drawCalls) * 100)
+        coverage = `Figures embedded in replies so far: ${u.embeddedFigures} of ${u.drawCalls} drawn (${rate}%).`
+      }
+      const embed = inlineUri === undefined ? embedRel : inlineUri
+      return { path: embedRel, markdown: `![${args.alt}](${embed})`, warnings: rendered.warnings, coverage }
     },
   })), 'inline-figures: draw_figure tool')
 
@@ -228,36 +330,103 @@ export function apply(ctx, config) {
     'inline-figures: guidance section',
   )
 
-  // Soft nudge, modeled exactly on the first-party repeat-tool-reminder plugin:
-  // it adds one short, self-contained reminder to the NEXT tool call's
-  // post-execute `additionalContexts` (the loop accepts those into the same
-  // step). No inject list beyond tools/systemPrompt is needed: every listener
-  // receives the acting `agent`, and counting lives entirely in the
-  // tool/post-execute + agent/pre-step waterfalls the plugin already sees.
-  // Turns count from user prompts (pre-step batches containing a user-source
-  // message), turns never figures - a session drawing at or above the guidance
-  // rate never hears from us; a silent one is nudged at most maxNudges times.
+  // The nudge watches the ANSWER, not a session average. The old counter-only
+  // rule (draw rate below a ratio) was measurably wrong: the AnGIneer session
+  // drew 12 figures over 29 turns - a "healthy" rate - while individual answers
+  // shipped tables where a figure belonged, and the rule stayed silent for all
+  // 29 turns (measured 2026-10-05). Two channels now share one decision core:
+  //
+  //   'remind' - one self-contained reminder rides the next tool result's
+  //     `additionalContexts` (the mechanism the first-party
+  //     repeat-tool-reminder uses). Costs no extra model step: the loop accepts
+  //     the context into the step that is already running.
+  //   'steer'  - the turn is closing on a structured, figure-less answer, so
+  //     `agent.steer(...)` re-opens the inbox and the model owes another step.
+  //     This is the channel that does not depend on the model remembering, and
+  //     it costs one extra step, so it is capped hard and requires that the
+  //     session has drawn at least once.
+  //
+  // NOTE: a waterfall listener receives `next` bound by ctx.waterfall(...),
+  // never by ctx.emit(...). Tests driving these listeners MUST call
+  // ctx.waterfall('tools/post-execute', ...) (see scripts/_repro-nudge.mjs).
   if (config.nudge) {
-    // NOTE: a waterfall listener receives `next` bound by ctx.waterfall(...),
-    // never by ctx.emit(...). Tests driving these listeners MUST call
-    // ctx.waterfall('tools/post-execute', ...) (see scripts/_repro-nudge.mjs).
     ctx.on('tools/post-execute', async ({ agent, name: toolName }, result, next) => {
       const downstream = await next()
       if (!agent || toolName === 'draw_figure' || result?.kind === 'block') return downstream
       const u = usageOf(agent)
-      if (decideNudge(u) !== 'remind') return downstream
+      // Judge the LAST completed answer, which is what `latestText` holds: the
+      // turn ledger clears itself at the turn boundary, so reading the ledger
+      // here always saw an empty string. A reminder attached now is read before
+      // the model writes its next message, so it costs no extra model step.
+      // `only: 'remind'`: a tool result can attach context, it cannot re-open the
+      // turn. The closing channel owns 'steer'.
+      const text = latestText.get(sessionKeyOf(agent))
+      const verdict = decideNudge({ ...u, text }, { only: 'remind' })
+      if (verdict !== 'remind') return downstream
       u.nudgesSent += 1
+      u.lastNudgeTurn = u.turns
       const reminder = createUserMessage({
         content: [{ type: 'text', text: NUDGE_REMINDER }],
         source: { ...NUDGE_SOURCE, form: 'notice', summary: 'inline-figures nudge' },
       })
       return { ...downstream, additionalContexts: [reminder, ...(downstream.additionalContexts ?? [])] }
     })
+
+    // The closing-turn channel. `agent/turn-stopping` is a serial hook awaited
+    // before the boundary commits; a listener that steers makes the machine
+    // re-read its inbox, so fresh steering runs another step (host contract,
+    // api-catalog). Anything that throws here must not break the turn.
+    ctx.on('agent/turn-stopping', async ({ agent }) => {
+      if (!agent) return
+      const u = usageOf(agent)
+      const key = sessionKeyOf(agent)
+      const text = latestText.get(key)
+      if (decideNudge({ ...u, text }) !== 'steer') return
+      u.steersSent += 1
+      u.lastSteerTurn = u.turns
+      agent.steer(createUserMessage({
+        content: [{ type: 'text', text: NUDGE_STEER }],
+        source: { ...NUDGE_SOURCE, form: 'notice', summary: 'inline-figures closing check' },
+      }))
+    })
+
+    // Read the log to learn what the model actually wrote: the last assistant
+    // message is the text the channels judge. Two measured subtleties:
+    //  - `session/event` is published from the session's own context. A listener
+    //    here does receive those emissions (probe-verified), and `{ global: true }`
+    //    states that intent explicitly - the option the first-party dsh-session
+    //    invariant uses. The subscription was never the bug.
+    //  - The text must be stored in `latestText` (keyed by session), NOT only in
+    //    the usage ledger: the ledger is created lazily on the first pre-step, so
+    //    a session's first answer arrived before it existed and was dropped, and
+    //    the ledger clears its own copy at every turn boundary. Both failures
+    //    left every structure check reading an empty answer.
+    ctx.on('session/event', (session, event) => {
+      if (event?.type !== 'assistant/message') return
+      const text = extractAssistantText(event.data)
+      if (text === '') return
+      const key = sessionKeyOf({ session })
+      latestText.set(key, text)
+      const u = usage.get(key)
+      if (u !== undefined) u.lastAssistantText = text
+    }, { global: true })
+
     ctx.on('agent/pre-step', ({ agent, messages }, next) => {
       // One answered turn begins when a step batch carries a user prompt.
       // (A mid-turn restart can re-count a turn; over-counting only nudges
-      // slightly earlier - safe direction.)
-      if (messages.some((message) => message.source?.kind === 'user')) usageOf(agent).turns += 1
+      // slightly earlier - safe direction.) The finished answer is committed
+      // into the turn ledger here, so a channel always judges a complete answer.
+      const u = usageOf(agent)
+      if (messages.some((message) => message.source?.kind === 'user')) {
+        const key = sessionKeyOf(agent)
+        const answer = latestText.get(key) ?? ''
+        u.turns += 1
+        u.embeddedFigures += countFiguresIn(answer)
+        if (answer !== '') u.sawText = true
+        if (structureSignal(answer).structural) u.structured = true
+        u.lastAssistantText = ''
+        u.turnsSinceDraw += 1
+      }
       return next()
     })
   }
