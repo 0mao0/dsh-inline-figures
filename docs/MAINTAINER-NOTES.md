@@ -114,13 +114,27 @@ $env:UPDATE_GOLDEN='1'; node --test test/architecture.test.js   # 重新生成�
 2. `additionalProperties:false` 的对象会在**运行时**拒绝任何不在 `properties` 白名单里的键。`spec` 是异构的，因此必须保持 **`additionalProperties: true`（开放）**——宿主只负责透传，真正的深校验在 execute 期的 `validateSpec()`/`drawFigure()`。改成 `false` 会让每一次调用都失败于 `"spec.kind" is not a declared property`。
 3. output 用的是另一套 "value schema" DSL：**只能逐属性写 `required: true`**，写顶层 `required:[...]` 数组会编译报错。
 
-回归防线：`scripts/_repro-png-check.mjs` 用**真实 cordis** 挂载 SystemPrompt + ToolRuntime + 本插件，逐一把五种 spec execute，断言 markdown 嵌 PNG + 磁盘 PNG magic + SVG 孪生文件存在，最后卸载插件并断言 `draw_figure` 确实消失（后者只有走 `ctx.effect` 注册才会通过）。从包根目录跑，期望 `E2E: 6 pass, 0 fail`。`scripts/_repro-nudge.mjs`（计数器兜底与提醒通道）期望 `4 pass, 0 fail`；`scripts/_repro-nudge-channels.mjs`（收尾 steer 通道、带图/原子回答不触发）期望 `5 pass, 0 fail`；`scripts/_repro-degrade.mjs`（强制所有 sharp 层失败，验证 data URI 与诊断文件）期望 `7 pass, 0 fail`。
+回归防线：`scripts/_repro-png-check.mjs` 用**真实 cordis** 挂载 SystemPrompt + ToolRuntime + 本插件，逐一把五种 spec execute，断言 markdown 嵌 PNG + 磁盘 PNG magic + SVG 孪生文件存在，最后卸载插件并断言 `draw_figure` 确实消失（后者只有走 `ctx.effect` 注册才会通过）。从包根目录跑，期望 `E2E: 6 pass, 0 fail`。`scripts/_repro-nudge.mjs`（计数器兜底与提醒通道）期望 `4 pass, 0 fail`；`scripts/_repro-nudge-channels.mjs`（收尾 steer 通道、带图/原子回答不触发）期望 `7 pass, 0 fail`；`scripts/_repro-broken-refs.mjs`（坏引用纠偏：编造文件名、双前缀、data URI/URL 排除）期望 `9 pass, 0 fail`；`scripts/_repro-degrade.mjs`（强制所有 sharp 层失败，验证 data URI 与诊断文件）期望 `7 pass, 0 fail`。
 
 加载器为何写显式 `.cjs` 文件 URL 而不是 bare `import('sharp')`：实测 bare 解析**随安装布局变化**——在插件安装目录内它落到本插件的 `dist/index.mjs`，但从工作区包目录跑则落到用户家目录 `~\node_modules\sharp\lib\index.js`（另一个更老的副本）。显式文件 URL 两个位置都确定命中同一个 staged 副本。
 
 ## 图片预览失败的历史根因（勿回退）
 
 GUI markdown 的 `![]()` 经 `<img src>` 由 `api/file?path=…` 喂给浏览器；服务端对所有文件带 `Content-Security-Policy: sandbox` + `nosniff`（防同源开放 HTML/SVG XSS）。Chromium 对带 CSP sandbox 的 SVG 拒绝光栅化 → `<img>` onError → UI 显示"图片无法预览 · alt"。这不是 MIME 问题，也**不是插件能改服务端头的事**——唯一干净解即 PNG 光栅内嵌（PNG 无文档语义，sandbox 头无害）。
+
+### 第二个、也是更常见的根因：路径是模型自己编的（2026-10-05 实测）
+
+上面那条只解释「PNG 缺失时的 SVG 回落」。真实会话里 **5/28 的图破在更早一步：回复引用的文件根本不存在**。
+
+- seq 4003：工具返回 `23-challenge-verdict.png`，回答却链接 `23-mechanism-usage.svg`（模型按自己的 alt 编了个"更像样"的 slug）。
+- seq 3790：路径把 `.dsh-figures/` 前缀写了两遍。
+- seq 1963 / 3859 / 3941：那几轮**没有 `draw_figure` 调用**，回答却引用了图。
+
+排查方法（比读代码快得多）：把会话里每条 `tool/result` 的 `Figure saved:` 与每条 `assistant/message` 里的 `![](...)` 做**集合差**，再用 `existsSync` 对工作区校验。两个字面量的对比——"工具返回了什么"vs"模型写了什么"——一眼就能定性。
+
+修法两层：① 引导与工具描述写明"**逐字节复制返回行**，不许重打文件名、不许改 slug、不许重复前缀"；② 收尾通道在 `agent/turn-stopping` 增加**文件存在性校验**（`unverifiedFigureRefs`），发现坏引用就 steer，并在消息里列出本会话真实存在的图。回归：`scripts/_repro-broken-refs.mjs` 期望 `9 pass, 0 fail`；对真实会话跑该校验应**恰好命中这 5 个、23 个正常引用零误报**。
+
+**教训**：看到"图片无法预览"先分清是哪一种——**文件在不在**。不在，就是模型编的路径；在而显示不出来，才是 CSP/PNG 那一层的事。
 
 ## 已知局限
 

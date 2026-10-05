@@ -108,6 +108,21 @@ test('closing-turn channel steers instead of waiting for the model to remember',
   assert.match(src, /const text = latestText\.get\(sessionKeyOf\(agent\)\)/)
 })
 
+// A tool cannot PLACE an image, so the only way to catch a broken embed is to
+// resolve it against the workspace before the answer ships. Measured on a live
+// session: 5 of 28 embedded figures pointed at files that were never written.
+test('the closing check verifies that embedded figures exist', () => {
+  assert.match(src, /const broken = unverifiedFigureRefs\(text, cwd\)/)
+  assert.match(src, /export function unverifiedFigureRefs\(text, cwd\)/)
+  assert.match(src, /export function brokenRefSteer\(broken, available\)/)
+  assert.match(src, /async function availableFigureFiles\(dir/)
+  assert.match(src, /NUDGE_STEER_BROKEN_REF/)
+  // The repair shares the steer budget, so an invented name cannot loop a turn.
+  assert.match(src, /u\.steersSent < NUDGE_DEFAULTS\.maxSteers/)
+  // Only workspace-relative paths are ours; URLs and data URIs are not our call.
+  assert.match(src, /isWorkspaceRelativeTarget\(ref\.target\)/)
+})
+
 test('output contract matches the portable render fields', () => {
   assert.match(src, /render: \(_args, value\) =>/)
   for (const field of ['path', 'markdown', 'warnings']) {

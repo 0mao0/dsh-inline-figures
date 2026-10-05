@@ -6,6 +6,8 @@ import {
   countFiguresIn,
   extractAssistantText,
   stripFences,
+  figureReferencesIn,
+  isWorkspaceRelativeTarget,
   NUDGE_DEFAULTS,
   NUDGE_REMINDER,
   NUDGE_STEER,
@@ -79,6 +81,30 @@ test('countFiguresIn counts markdown images and never code fences', () => {
   assert.equal(countFiguresIn('![](a.png) text ![](b.png)'), 2)
   assert.equal(countFiguresIn('```\n![](inside.png)\n```'), 0)
   assert.equal(countFiguresIn(''), 0)
+})
+
+test('figureReferencesIn lists path targets and skips data URIs', () => {
+  const refs = figureReferencesIn('![a](.dsh-figures/s1/1-x.png) and ![b](data:image/png;base64,AAA) plus ![c](https://x/y.png)')
+  assert.deepEqual(refs.map((r) => r.target), ['.dsh-figures/s1/1-x.png', 'https://x/y.png'])
+  assert.equal(figureReferencesIn('```\n![a](x.png)\n```').length, 0)
+  assert.equal(figureReferencesIn('<img src=".dsh-figures/s1/2.svg">').length, 1)
+  assert.deepEqual(figureReferencesIn(''), [])
+})
+
+test('isWorkspaceRelativeTarget separates paths from URLs and data URIs', () => {
+  assert.equal(isWorkspaceRelativeTarget('.dsh-figures/s1/1.png'), true)
+  assert.equal(isWorkspaceRelativeTarget('docs/a.png'), true)
+  assert.equal(isWorkspaceRelativeTarget('https://x/y.png'), false)
+  assert.equal(isWorkspaceRelativeTarget('data:image/svg+xml;base64,AAA'), false)
+  assert.equal(isWorkspaceRelativeTarget('//cdn/x.png'), false)
+  assert.equal(isWorkspaceRelativeTarget('#anchor'), false)
+})
+
+test('structureSignal skips the has-figure shortcut when asked for structure', () => {
+  // The closing channel needs the STRUCTURE answer even when a figure is linked,
+  // because the link itself may be broken.
+  assert.equal(structureSignal(FIGURE_REPLY).structural, false)
+  assert.equal(structureSignal(FIGURE_REPLY, { structural: true }).structural, true)
 })
 
 test('extractAssistantText reads content blocks and streamed frames', () => {

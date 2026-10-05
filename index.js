@@ -1,6 +1,7 @@
 // index.js — DSH host adapter. The ONLY file in this package importing @deepseek-ai/* packages.
 // All real logic lives in portable modules (lib/) that are unit-tested without cordis.
 import path from 'node:path'
+import fs from 'node:fs'
 import os from 'node:os'
 import fsp from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -8,7 +9,7 @@ import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { drawFigure, FigureError, validateSpec, formatErrors, GUIDANCE_TEXT, GUIDANCE_TITLE } from './lib/engine.js'
-import { decideNudge, extractAssistantText, countFiguresIn, structureSignal, NUDGE_REMINDER, NUDGE_STEER, NUDGE_SOURCE } from './lib/nudge.js'
+import { decideNudge, extractAssistantText, countFiguresIn, structureSignal, figureReferencesIn, isWorkspaceRelativeTarget, NUDGE_DEFAULTS, NUDGE_REMINDER, NUDGE_STEER, NUDGE_STEER_BROKEN_REF, NUDGE_STEER_BROKEN_TAIL, NUDGE_SOURCE } from './lib/nudge.js'
 import { writeFigure, pruneFigures, figureRelPath, figureDirName } from './lib/host-utils.js'
 
 // Rasterizer (option A): the GUI serves figure files with a CSP `sandbox`
@@ -92,6 +93,58 @@ export function svgDataUri(svg) {
   const bytes = Buffer.byteLength(svg, 'utf8')
   if (bytes > DATA_URI_MAX_BYTES) return { ok: false, bytes }
   return { ok: true, bytes, uri: `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}` }
+}
+
+/**
+ * Figure references in an answer whose file is NOT on disk. A reference is
+ * reported only when it is a workspace-relative path: absolute paths, `http(s)`
+ * URLs and data URIs are the caller's business, not ours. Pure Node, no host.
+ */
+export function unverifiedFigureRefs(text, cwd) {
+  if (typeof text !== 'string' || text === '' || typeof cwd !== 'string' || cwd === '') return []
+  const broken = []
+  for (const ref of figureReferencesIn(text)) {
+    if (!isWorkspaceRelativeTarget(ref.target)) continue
+    const abs = path.resolve(cwd, ref.target.replace(/[?#].*$/, ''))
+    let ok = false
+    try {
+      ok = fs.existsSync(abs)
+    } catch {
+      ok = false
+    }
+    if (!ok) broken.push({ alt: ref.alt, target: ref.target })
+  }
+  return broken
+}
+
+/** The newest N figure files in a session's figure directory, as relative paths. */
+async function availableFigureFiles(dir, limit = 8) {
+  let names = []
+  try {
+    names = await fsp.readdir(dir)
+  } catch {
+    return []
+  }
+  const figures = []
+  for (const name of names) {
+    if (!/\.(?:svg|png)$/.test(name)) continue
+    try {
+      figures.push({ name, mtimeMs: (await fsp.stat(path.join(dir, name))).mtimeMs })
+    } catch {}
+  }
+  figures.sort((a, b) => b.mtimeMs - a.mtimeMs || a.name.localeCompare(b.name, 'en'))
+  return figures.slice(0, limit).map((f) => `.dsh-figures/${path.basename(dir)}/${f.name}`)
+}
+
+/** The repair instruction for the broken references of one answer. */
+export function brokenRefSteer(broken, available) {
+  const lines = [NUDGE_STEER_BROKEN_REF]
+  for (const ref of broken) lines.push(`- ${ref.target}${ref.alt === '' ? '' : `  (alt: ${ref.alt.slice(0, 60)})`}`)
+  lines.push(available.length > 0
+    ? `Figures that DO exist in this session (newest first):\n${available.map((p) => `- ${p}`).join('\n')}`
+    : 'This session has written no figure files yet, so every reference must come from a draw_figure result.')
+  lines.push(NUDGE_STEER_BROKEN_TAIL)
+  return lines.join('\n')
 }
 
 let rasterPromise = null
@@ -205,7 +258,7 @@ export function apply(ctx, config) {
   // the row actually removes the tool and the prompt section.
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'draw_figure',
-    description: 'Render an explanatory vector figure and return the inline markdown line to copy VERBATIM into your reply. Preferred: hand-author an SVG for free-form structures and pass kind=raw_svg; preset kinds architecture/compare/timeline/chart compute layout from JSON specs. The figure is saved in the session workspace and rendered full-width. Use it by judgment, but lean toward drawing: wherever the answer carries structure (components and relations, a flow or sequence, a timeline/state machine, a comparison, counts/proportions/a ranking), draw a figure THERE and delete the paragraph it replaces. Most explanatory answers want at least one figure; a multi-topic answer wants one per structure. A figure replaces prose, it does not stack on it. Only atomic replies are exempt (one number, one date, one name, a one-line definition, a small edit, pure code). Never use ASCII art instead.',
+    description: 'Render an explanatory vector figure and return the inline markdown line to copy VERBATIM into your reply. Preferred: hand-author an SVG for free-form structures and pass kind=raw_svg; preset kinds architecture/compare/timeline/chart compute layout from JSON specs. The figure is saved in the session workspace and rendered full-width. COPY the returned markdown line byte for byte - a file name you retype or invent points at nothing, and the reader sees a broken image. Use it by judgment, but lean toward drawing: wherever the answer carries structure (components and relations, a flow or sequence, a timeline/state machine, a comparison, counts/proportions/a ranking), draw a figure THERE and delete the paragraph it replaces. Most explanatory answers want at least one figure; a multi-topic answer wants one per structure. A figure replaces prose, it does not stack on it. Only atomic replies are exempt (one number, one date, one name, a one-line definition, a small edit, pure code). Never use ASCII art instead.',
     parameters: {
       // dsh-tools' compiler requires every `type:'object'` node to declare
       // additionalProperties. spec is heterogeneous (raw_svg vs. the four preset
@@ -376,11 +429,34 @@ export function apply(ctx, config) {
     // before the boundary commits; a listener that steers makes the machine
     // re-read its inbox, so fresh steering runs another step (host contract,
     // api-catalog). Anything that throws here must not break the turn.
+    //
+    // Two checks run here, and the FILE check comes first because a broken image
+    // link is the worse outcome: the reader sees a box where the figure should
+    // be. Measured 2026-10-05 in an AnGIneer session: 5 of 28 embedded figures
+    // pointed at files that did not exist, because the model INVENTED a
+    // plausible file name instead of copying the line the tool returned (the
+    // tool wrote `23-challenge-verdict.png`; the answer linked
+    // `23-mechanism-usage.svg`, and one path repeated `.dsh-figures/` twice).
     ctx.on('agent/turn-stopping', async ({ agent }) => {
       if (!agent) return
       const u = usageOf(agent)
       const key = sessionKeyOf(agent)
       const text = latestText.get(key)
+      const cwd = agent?.session?.header?.cwd
+      const figureDir = figureDirOf(cwd, agent?.session?.id ?? agent?.session?.header?.id ?? agent?.sessionId ?? agent?.id)
+      const broken = unverifiedFigureRefs(text, cwd)
+      // The repair shares the steer budget, so a model that keeps inventing file
+      // names cannot loop the turn forever.
+      if (broken.length > 0 && figureDir !== undefined && u.steersSent < NUDGE_DEFAULTS.maxSteers) {
+        u.steersSent += 1
+        u.lastSteerTurn = u.turns
+        const available = await availableFigureFiles(figureDir)
+        agent.steer(createUserMessage({
+          content: [{ type: 'text', text: brokenRefSteer(broken, available) }],
+          source: { ...NUDGE_SOURCE, form: 'notice', summary: 'inline-figures broken reference' },
+        }))
+        return
+      }
       if (decideNudge({ ...u, text }) !== 'steer') return
       u.steersSent += 1
       u.lastSteerTurn = u.turns

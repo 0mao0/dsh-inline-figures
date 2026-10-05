@@ -29,12 +29,20 @@ const agent = {
 const body = (extra) => `${extra}\n${'细粒度说明。'.repeat(120)}`
 const TABLE_REPLY = body(['| 项 | 现状 | 目标 |', '| --- | --- | --- |', '| A | 1 | 2 |', '| B | 3 | 4 |'].join('\n'))
 
+// A figure that EXISTS, so "a figure-bearing answer is left alone" tests the
+// channel and not the (separate) broken-reference repair. The session key is
+// what figureDirName maps to, so the file lands where the check looks.
+const FIGURE_SVG = '![图](.dsh-figures/nudge-channels-0001/1-timeline.svg)'
+fs.mkdirSync(path.join(cwd, '.dsh-figures', 'nudge-channels-0001'), { recursive: true })
+fs.writeFileSync(path.join(cwd, '.dsh-figures', 'nudge-channels-0001', '1-timeline.svg'), '<svg viewBox="0 0 10 10"/>')
+
 let pass = 0
 let fail = 0
 const check = (label, ok, extra = '') => {
   ok ? pass++ : fail++
   console.log(`${ok ? 'PASS' : 'FAIL'} ${label}${extra ? ' :: ' + extra : ''}`)
 }
+const textOf = (message) => message?.content?.[0]?.text ?? ''
 
 // Real host order inside one turn: user prompt enters a step (pre-step), the
 // model streams an assistant message (session/event), a tool call completes
@@ -71,9 +79,21 @@ check('the steer carries producer identity', steered[0]?.source?.kind === 'inlin
 steered.length = 0
 await firePreStep()
 await firePreStep()
-await fireAssistant(`${TABLE_REPLY}\n![图](.dsh-figures/abc12345/1-x.png)`)
+await fireAssistant(`${TABLE_REPLY}\n${FIGURE_SVG}`)
 await fireTurnStopping()
 check('a figure-bearing answer is left alone', steered.length === 0, `steers=${steered.length}`)
+
+// The same answer with a path that does not exist is a different case, owned by
+// the broken-reference repair (scripts/_repro-broken-refs.mjs covers it in full);
+// this proves the two checks do not fight: the repair speaks, and it is not the
+// structure steer.
+steered.length = 0
+await firePreStep()
+await firePreStep()
+await fireAssistant(`${TABLE_REPLY}\n![编的](.dsh-figures/nudge-channels-0001/9-invented.svg)`)
+await fireTurnStopping()
+check('an invented path is repaired, not ignored', steered.length === 1, `steers=${steered.length}`)
+check('the repair is the broken-reference notice', /DO NOT\s+EXIST/.test(textOf(steered[0])), textOf(steered[0]).slice(0, 80))
 
 // An atomic answer never triggers anything, even on a drawing session.
 steered.length = 0

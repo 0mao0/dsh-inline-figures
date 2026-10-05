@@ -9,6 +9,18 @@ Add entries under `## [Unreleased]` as you work. `node scripts/release.mjs` roll
 
 ## [Unreleased]
 
+### Added
+
+- **The closing check now verifies that embedded figures EXIST.** A tool cannot place an image, so the plugin reads the answer a session is about to close on, resolves every workspace-relative figure path against the session workspace, and steers the agent when any of them is not a file. The steer names the broken paths and lists the figures that do exist, so the repair is mechanical. Measured 2026-10-05 on a live AnGIneer session: **5 of 28 embedded figures pointed at files that were never written** — the model invented a plausible name (`23-mechanism-usage.svg`) while the tool had returned `23-challenge-verdict.png`, one answer repeated the `.dsh-figures/` prefix twice, and three answers linked figures no run ever drew. Verified against those real answers: the check catches exactly those 5 and flags none of the 23 valid references.
+
+### Changed
+
+- The guidance and the tool description now state that the returned markdown line must be copied BYTE FOR BYTE: never retype the file name, never "improve" the slug, never repeat the `.dsh-figures/` prefix. A retyped name resolves to nothing, and the reader sees a broken-image box.
+
+### Fixed
+
+- An invented figure path was indistinguishable from a real one until a reader looked at it. The repair steer shares the steer budget (two per session), so a model that keeps inventing names cannot loop the turn.
+
 ## [0.1.0] - 2026-10-05
 
 ### Added
