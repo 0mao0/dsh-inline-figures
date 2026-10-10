@@ -73,6 +73,7 @@ README 图片不是手搓的：`node scripts/make-readme-image.mjs`（before/aft
 3. **引导语脂肪**。`GUIDANCE_TEXT` 6,133 字符（约 1,700 token）+ 工具描述 902 + `SPEC_DESCRIPTION` 909 ≈ 2,200 token 常驻系统提示，且"SVG 优先/永不用 ASCII/原子回答豁免"三处在引导语与工具描述里重复。ASD-STE100 散文风格规则与出图无关，可移出。
 4. **index.js 的 `execute` 仍没有被单元测试直接覆盖**。`test/index.test.js` 是源码正则断言，语义等价的重构会挂、真 bug 能过；目前靠 `scripts/_repro-png-check.mjs`（真实 cordis）兜底。修法：抽出 `executeDraw(args, deps)` 接缝，把 e2e 断言搬进 `node --test`。
 5. **看门狗的两条通道在 0.1.0 之前从未真正跑通过**。`session/event` 的正文读取踩了两个坑：账本 `usage` 是懒建的（会话第一条回答到达时账本还不存在），且账本在每个回合边界清空自己的文本副本；结果 `post-execute` 与 `turn-stopping` 判定的一直是空串。已改为按会话键的 `latestText`（只有 `agent/disposed` 清），并新增 `scripts/_repro-nudge-channels.mjs` 走真实事件路径。**教训：绕过真实事件源的 e2e 会给假信心**——早期 `_repro-nudge.mjs` 直接在根 ctx 上 emit，所以一直是绿的。
+6. **宿主画不出 CJK 时 PNG 全成空方框，现在只报警、不自愈**。实测（2026-10-10，aarch64 容器：`/usr/share/fonts` 为空、无 `/etc/fonts/fonts.conf`、无 `fc-list`）：同一张图里 Latin 正常、CJK 全部渲染成空方框，`.svg` 原件正确，`warnings` 为空——**读者是唯一的发现者**。现由 `lib/font-check.js` 在 spec 含 CJK 时探一次 `fc-list :lang=zh` 并报警（探针每进程只跑一次，因为光栅化器在**本进程内**解析字体：中途装字体后它的 fontconfig 缓存不刷新，实测仍吐方框，重新探测只会给出它看不见的答案）。仍未自愈的部分：**装完字体要重启进程**才生效。另：`/etc/fonts/fonts.conf` 缺失才算证据，非 Linux 上 `fc-list` 缺失不能说明什么，所以那两种情况保持沉默。
 
 配套复现脚本在仓库外的 `_probe/figs-review/`（像素统计、并发压测、布局扫描、依赖与提示词计量），未纳入版本控制。
 

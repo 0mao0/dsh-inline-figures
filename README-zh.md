@@ -108,6 +108,7 @@ draw_figure({ spec, alt, slug? }) -> { path, markdown, warnings }
 - **按会话分目录。** 图落在画它的那个会话目录里。每个目录只保留最新 200 张，超出按修改时间清理，被清掉的 SVG 连同它的 PNG 孪生一起删除。
 - **图是引用，不是副本。** 删掉文件，旧回答里的图就变成破图——把这个目录当成对话的一部分，而不是可随手清理的临时文件。
 - **栅格化失败时**，正文改嵌 SVG 的 data URI，图仍然能显示；插件同时把这次失败追加写进本目录的 `raster-diagnostic.txt`。不能退回到相对路径的 `.svg` 链接：GUI 给图片文件带的是 CSP `sandbox` 头，Chromium 拒绝把这种来源的 SVG 光栅化，它只会渲染成破图。
+- **宿主画不出 CJK 时**，PNG 里的中日韩字符会变成空方框，而栅格化本身仍然「成功」——`.svg` 原件是对的，所以这条损失在嵌图路径上看不出来。当 spec 含 CJK 而宿主没有覆盖它的字体时，插件会在工具结果里说明，并追加写进 `raster-diagnostic.txt`。装一个字体即可（`apt-get install -y fontconfig fonts-noto-cjk`），然后重新出图。
 
 每次出图不会在别处留下东西。只有两处安装期产物可能在会话工作区之外：离线兜底安装器在 `~/.dsh/vendor` 下的暂存副本，以及 profile `node_modules` 里的 `sharp`。
 

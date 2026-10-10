@@ -108,6 +108,7 @@ Only the session workspace, and nothing leaves the machine.
 - **Per session.** A figure lands in the directory of the session that drew it. Each directory keeps its newest 200; older ones are pruned by modification time, and a pruned SVG takes its PNG twin with it.
 - **A figure is a reference, not a copy.** Delete the files and old replies show a broken image, so treat the directory as part of the conversation, not as scratch space.
 - **If rasterization fails**, the reply embeds the SVG as an inline data URI instead, so the figure still renders, and the plugin appends the failure to `raster-diagnostic.txt` in this directory. A relative `.svg` link cannot be used as a fallback: the GUI serves figure files with a CSP `sandbox` header, and Chromium refuses to rasterize an SVG loaded that way — it renders as a broken image.
+- **If the host cannot draw CJK**, the PNG's Chinese/Japanese/Korean labels come out as empty boxes while the raster still succeeds: the `.svg` original is correct, so nothing in the embed path can show the loss. When a spec contains CJK and the host has no font covering it, the plugin says so in the tool result and appends it to `raster-diagnostic.txt`. Install one (`apt-get install -y fontconfig fonts-noto-cjk`) and draw the figure again.
 
 Nothing else is written per answer. Two install-time artefacts can exist elsewhere: the offline fallback's staging copy under `~/.dsh/vendor`, and `sharp` in the profile's `node_modules`.
 
