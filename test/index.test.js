@@ -219,6 +219,16 @@ test('the rasterized PNG gets an opaque canvas, the SVG archive does not', () =>
 })
 
 test('delegates to portable modules only (no inline layout logic)', () => {
-  for (const importee of ['./lib/engine.js', './lib/host-utils.js']) assert.ok(src.includes(importee), importee)
+  for (const importee of ['./lib/engine.js', './lib/host-utils.js', './lib/font-check.js']) assert.ok(src.includes(importee), importee)
   assert.ok(!src.includes('function architecture('))
+})
+
+// A raster can succeed and still lose every CJK glyph (no font on the host), so
+// the loss is invisible in the embed path: the check has to run per draw and the
+// warning has to reach both the tool result and the user-findable diagnostic.
+test('reports a host that cannot draw CJK instead of shipping boxes', () => {
+  assert.match(src, /import \{ cjkFontWarning \} from '\.\/lib\/font-check\.js'/)
+  assert.match(src, /const fontWarning = await cjkFontWarning\(\{ spec: args\.spec \}\)/)
+  assert.match(src, /rendered\.warnings\.push\(fontWarning\)/)
+  assert.match(src, /writeDiagnostic\(dir, fontWarning\)/)
 })

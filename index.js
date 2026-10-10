@@ -11,6 +11,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { drawFigure, FigureError, validateSpec, formatErrors, GUIDANCE_TEXT, GUIDANCE_TITLE } from './lib/engine.js'
 import { decideNudge, extractAssistantText, countFiguresIn, structureSignal, figureReferencesIn, isWorkspaceRelativeTarget, NUDGE_DEFAULTS, NUDGE_REMINDER, NUDGE_STEER, NUDGE_STEER_BROKEN_REF, NUDGE_STEER_BROKEN_TAIL, NUDGE_SOURCE } from './lib/nudge.js'
 import { writeFigure, pruneFigures, figureRelPath, figureDirName } from './lib/host-utils.js'
+import { cjkFontWarning } from './lib/font-check.js'
 
 // Rasterizer (option A): the GUI serves figure files with a CSP `sandbox`
 // header, and Chromium refuses to rasterize an SVG served that way, so the
@@ -347,6 +348,14 @@ export function apply(ctx, config) {
           rendered.warnings.push(`PNG raster unavailable (${rasterFailure}) and the figure is too large to inline (${inline.bytes} bytes > ${DATA_URI_MAX_BYTES}); it is embedded as a relative .svg, which the GUI cannot render. Stage sharp or shrink the figure.`)
         }
         await writeDiagnostic(dir, rasterFailure)
+      }
+      // A raster that succeeds can still lose every CJK glyph (see
+      // lib/font-check.js), so the font prerequisite is reported here, next to
+      // the other embedding warnings, and recorded where the user can find it.
+      const fontWarning = await cjkFontWarning({ spec: args.spec })
+      if (fontWarning !== undefined) {
+        rendered.warnings.push(fontWarning)
+        await writeDiagnostic(dir, fontWarning)
       }
       await pruneFigures(dir, FIGURE_LIMIT)
       // Count the successful draw for the nudge policy of this agent.
